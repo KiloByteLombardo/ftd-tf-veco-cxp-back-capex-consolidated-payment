@@ -1,0 +1,28 @@
+# Configuración para PRODUCCIÓN
+# Usa Application Default Credentials (ADC) - NO requiere credentials.json
+# Para desarrollo local, usa: docker-compose -f docker-compose.local.yml up
+
+services:
+  capex-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: capex-automation-api
+    ports:
+      # Mapear puerto del host al contenedor (ajusta según tu .env)
+      - "5000:5000"
+    env_file:
+      # Cargar todas las variables de entorno desde .env
+      - .env
+    volumes:
+      # NO montar credentials.json - usa ADC (Application Default Credentials)
+      # Montar directorio temporal para archivos procesados
+      - ./tmp:/tmp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+

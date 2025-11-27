@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+**/__pycache__/
+**/*.pyc
+
+# Excel files - NO copiar
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+~$*.xlsx
+~$*.xls
+*.csv
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+env
+.env
+
+# Credenciales - NUNCA incluir en imagen Docker
+credentials.json
+*.json
+!package.json
+!tsconfig.json
+service-account*.json
+google-credentials.json
+
+# Git
+.git/
+.gitignore
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+tests/
+
+# Documentation
+*.md
+docs/
+
+# Archivos temporales
+*.tmp
+*.temp
+/tmp/

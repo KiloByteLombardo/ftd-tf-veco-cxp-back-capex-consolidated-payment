@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+**/__pycache__/
+**/*.pyc
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+env
+.env
+
+# Credenciales - NUNCA subir al repositorio
+credentials.json
+*.json
+!package.json
+!tsconfig.json
+service-account*.json
+google-credentials.json
+
+# Excel files
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+~$*.xlsx
+~$*.xls
+*.csv
+
+
+# Archivos temporales
+*.tmp
+*.temp
+/tmp/
+tmp/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Testing
+.pytest_cache/
+tests/
+
+# Documentation (opcional - descomenta si no quieres subir docs)
+# *.md
+# docs/
+

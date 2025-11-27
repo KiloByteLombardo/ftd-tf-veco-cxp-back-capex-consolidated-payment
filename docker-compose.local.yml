@@ -1,0 +1,30 @@
+# Configuración para desarrollo LOCAL
+# Usa este archivo cuando quieras usar credentials.json localmente
+# Ejecutar con: docker-compose -f docker-compose.local.yml up
+
+services:
+  capex-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: capex-automation-api-local
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      # Montar credenciales desde el host (SOLO para desarrollo local)
+      - ./credentials.json:/app/credentials.json:ro
+      # Montar directorio temporal para archivos procesados
+      - ./tmp:/tmp
+    restart: unless-stopped
+    environment:
+      # Forzar uso del archivo de credenciales en desarrollo local
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
