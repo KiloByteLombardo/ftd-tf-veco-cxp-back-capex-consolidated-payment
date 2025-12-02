@@ -238,7 +238,9 @@ def obtener_area_para_solicitante(solicitante, lookup_solicitantes: dict, proyec
     Obtener área para solicitante - Implementación de la fórmula Excel:
     =+SI(W13=0;"SERVICIOS";BUSCARV(W13;Solicitantes!$A$1:$B$116;2;FALSO))
     
-    EXCEPCIÓN: Si proyecto = "A048" → retorna "AUTOPAGO"
+    EXCEPCIONES:
+    - Si proyecto = "A048" → retorna "AUTOPAGO"
+    - Si solicitante es de TI y proyecto = "VENE" → retorna "DIR CONSTRUCCIÓN Y PROYECTOS"
     
     Args:
         solicitante: Nombre del solicitante
@@ -248,7 +250,7 @@ def obtener_area_para_solicitante(solicitante, lookup_solicitantes: dict, proyec
     Returns:
         str: Área correspondiente
     """
-    # EXCEPCIÓN: Si proyecto es A048, retornar AUTOPAGO directamente
+    # EXCEPCIÓN 1: Si proyecto es A048, retornar AUTOPAGO directamente
     if proyecto and str(proyecto).strip().upper() == "A048":
         return "AUTOPAGO"
     
@@ -262,25 +264,41 @@ def obtener_area_para_solicitante(solicitante, lookup_solicitantes: dict, proyec
     
     # Limpiar y buscar
     solicitante_clean = str(solicitante).strip().upper()
+    proyecto_clean = str(proyecto).strip().upper() if proyecto else ""
     
     # Búsqueda exacta
+    area_encontrada = None
     if solicitante_clean in lookup_solicitantes:
-        return lookup_solicitantes[solicitante_clean]
+        area_encontrada = lookup_solicitantes[solicitante_clean]
+    else:
+        # Búsqueda parcial por palabras clave (apellidos)
+        for sol_ref, area in lookup_solicitantes.items():
+            # Buscar por coincidencia parcial
+            if solicitante_clean in sol_ref or sol_ref in solicitante_clean:
+                area_encontrada = area
+                break
+            
+            # Buscar por apellidos (última palabra de cada nombre)
+            palabras_ref = sol_ref.split()
+            palabras_buscar = solicitante_clean.split()
+            
+            if len(palabras_ref) > 0 and len(palabras_buscar) > 0:
+                # Comparar último apellido
+                if palabras_ref[-1] in palabras_buscar or palabras_buscar[-1] in palabras_ref:
+                    area_encontrada = area
+                    break
     
-    # Búsqueda parcial por palabras clave (apellidos)
-    for sol_ref, area in lookup_solicitantes.items():
-        # Buscar por coincidencia parcial
-        if solicitante_clean in sol_ref or sol_ref in solicitante_clean:
-            return area
-        
-        # Buscar por apellidos (última palabra de cada nombre)
-        palabras_ref = sol_ref.split()
-        palabras_buscar = solicitante_clean.split()
-        
-        if len(palabras_ref) > 0 and len(palabras_buscar) > 0:
-            # Comparar último apellido
-            if palabras_ref[-1] in palabras_buscar or palabras_buscar[-1] in palabras_ref:
-                return area
+    # EXCEPCIÓN 2: Si solicitante es de TI y proyecto es VENE, asignar DIR CONSTRUCCIÓN Y PROYECTOS
+    if area_encontrada:
+        area_clean = str(area_encontrada).strip().upper()
+        # Verificar si el área contiene "TI" (Tecnología de Información)
+        if "TI" in area_clean or "TECNOLOGIA" in area_clean or "TECNOLOGÍA" in area_clean or "INFORMACION" in area_clean or "INFORMACIÓN" in area_clean:
+            if proyecto_clean == "VENE":
+                return "DIR CONSTRUCCIÓN Y PROYECTOS"
+    
+    # Retornar área encontrada o área no encontrada
+    if area_encontrada:
+        return area_encontrada
     
     # No encontrado en Google Sheet
     return "AREA_NO_ENCONTRADA"
@@ -785,9 +803,34 @@ def crear_hoja_capex_pagado_por_recibo(archivo_excel: str, df_detalle: pd.DataFr
         'DECEMBER': 'DICIEMBRE'
     }
 
-    mes_actual_en = pd.Timestamp.now().strftime('%B').upper()
-    mes_actual = meses_en_espanol.get(mes_actual_en, mes_actual_en)
-    print(f"\n📅 Mes actual para filtros: {mes_actual}")
+    # Obtener mes basado en el viernes de la semana pasada (igual que la columna SEMANA)
+    # Usa la misma lógica que APIHelper._obtener_viernes_pasado()
+    import datetime as dt
+    
+    # Obtener el viernes de la semana pasada (misma lógica que en utils.py)
+    hoy = dt.date.today()
+    dia_semana_actual = hoy.weekday()  # lunes=0, viernes=4, domingo=6
+    
+    # Calcular días hasta el viernes de esta semana
+    dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
+    
+    # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
+    # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
+    if dias_hasta_viernes_esta_semana == 0:
+        dias_retroceso = 7
+    else:
+        dias_retroceso = dias_hasta_viernes_esta_semana + 7
+    
+    viernes_pasado = hoy - dt.timedelta(days=dias_retroceso)
+    
+    # Obtener el mes del viernes pasado
+    meses = {
+        1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
+        5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
+        9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
+    }
+    mes_actual = meses[viernes_pasado.month]
+    print(f"\n📅 Mes actual para filtros (basado en viernes pasado): {mes_actual}")
     
     # Verificar filtro de mes
     print(f"\n🔍 Valores de 'MES DE PAGO' en el DataFrame:")
@@ -1084,12 +1127,12 @@ def crear_hoja_presupuesto_mensual(archivo_excel: str, df_responsables: pd.DataF
     fechas_unicas = df[['fecha', 'fecha_mes']].drop_duplicates().sort_values('fecha')
     print(fechas_unicas)
     
-    # Crear tabla dinámica: AREA (filas) vs FECHA (columnas)
+    # Crear tabla dinámica: TIPO + AREA (filas) vs FECHA (columnas)
     print(f"\n⚙️ Creando tabla dinámica...")
     tabla = pd.pivot_table(
         df,
         values='monto',
-        index='area',
+        index=['tipo_capex', 'area'],
         columns='fecha_mes',
         aggfunc='sum',
         fill_value=0,
@@ -1119,11 +1162,12 @@ def crear_hoja_presupuesto_mensual(archivo_excel: str, df_responsables: pd.DataF
     
     tabla = tabla[columnas_ordenadas]
     
-    print(f"✅ Tabla creada: {tabla.shape[0]} áreas x {tabla.shape[1]} meses")
+    print(f"✅ Tabla creada: {tabla.shape[0]} filas (tipos+áreas) x {tabla.shape[1]} meses")
     print(f"📅 Orden de columnas (fecha ascendente):")
     for i, col in enumerate(tabla.columns, 1):
         print(f"   {i}. {col}")
-    print(f"\n{tabla}")
+    print(f"\n📊 Tipos únicos en datos: {df['tipo_capex'].unique()}")
+    print(f"\n{tabla.head(20)}")
     
     # Cargar workbook
     wb = load_workbook(archivo_excel)
@@ -1139,6 +1183,8 @@ def crear_hoja_presupuesto_mensual(archivo_excel: str, df_responsables: pd.DataF
     header_font = Font(bold=True, color="FFFFFF", size=11)
     total_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     total_font = Font(bold=True, size=11)
+    tipo_fill = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")  # Naranja para tipos
+    tipo_font = Font(bold=True, size=11, color="000000")
     border = Border(
         left=Side(style='thin'),
         right=Side(style='thin'),
@@ -1170,18 +1216,67 @@ def crear_hoja_presupuesto_mensual(archivo_excel: str, df_responsables: pd.DataF
     
     fila_actual += 1
     
-    # Datos de la tabla
-    for row_idx, (responsable, fila_datos) in enumerate(tabla.iterrows()):
-        # Celda de responsable
-        celda_resp = ws.cell(row=fila_actual + row_idx, column=1, value=limpiar_valor_para_excel(responsable))
-        celda_resp.border = border
-        celda_resp.alignment = Alignment(horizontal='left', vertical='center')
+    # Organizar datos por tipo: primero CAPEX EXTRAORDINARIO, luego CAPEX ORDINARIO
+    tipos_orden = ['CAPEX EXTRAORDINARIO', 'CAPEX ORDINARIO']
+    tipo_anterior = None
+    row_idx = 0
+    
+    # Separar el total general si existe
+    filas_tabla = []
+    fila_total = None
+    
+    for idx, (multi_index, fila_datos) in enumerate(tabla.iterrows()):
+        # Verificar si es el total general (puede ser string o tupla con 'Total general')
+        if isinstance(multi_index, str) and multi_index == 'Total general':
+            fila_total = (multi_index, fila_datos)
+        elif isinstance(multi_index, tuple) and len(multi_index) > 0 and multi_index[0] == 'Total general':
+            fila_total = (multi_index, fila_datos)
+        else:
+            # multi_index es una tupla (tipo_capex, area)
+            if isinstance(multi_index, tuple) and len(multi_index) == 2:
+                tipo_capex, area = multi_index
+                filas_tabla.append((tipo_capex, area, fila_datos))
+            else:
+                # Caso especial: si no es tupla, intentar extraer tipo y área de otra forma
+                print(f"⚠️ Formato de índice inesperado: {multi_index} (tipo: {type(multi_index)})")
+    
+    # Ordenar filas: primero por tipo (EXTRAORDINARIO, luego ORDINARIO), luego por área
+    def ordenar_filas(fila):
+        tipo, area, _ = fila
+        tipo_orden = tipos_orden.index(tipo) if tipo in tipos_orden else 999
+        return (tipo_orden, area)
+    
+    filas_tabla.sort(key=ordenar_filas)
+    
+    # Escribir filas organizadas por tipo
+    for tipo_capex, area, fila_datos in filas_tabla:
+        # Si cambió el tipo, agregar fila de encabezado de tipo
+        if tipo_capex != tipo_anterior:
+            # Fila de encabezado de tipo
+            celda_tipo = ws.cell(row=fila_actual + row_idx, column=1, value=tipo_capex)
+            celda_tipo.fill = tipo_fill
+            celda_tipo.font = tipo_font
+            celda_tipo.border = border
+            celda_tipo.alignment = Alignment(horizontal='left', vertical='center')
+            
+            # Calcular totales por tipo para cada columna
+            tipo_filas = [(t, a, fd) for t, a, fd in filas_tabla if t == tipo_capex]
+            for col_idx, mes in enumerate(tabla.columns, 1):
+                total_tipo = sum(fd[mes] for _, _, fd in tipo_filas)
+                celda = ws.cell(row=fila_actual + row_idx, column=col_idx + 1, value=limpiar_valor_para_excel(total_tipo))
+                celda.fill = tipo_fill
+                celda.font = tipo_font
+                celda.border = border
+                celda.number_format = '#,##0.00'
+                celda.alignment = Alignment(horizontal='right')
+            
+            row_idx += 1
+            tipo_anterior = tipo_capex
         
-        # Determinar si es fila de total
-        es_total = (responsable == 'Total general')
-        if es_total:
-            celda_resp.fill = total_fill
-            celda_resp.font = total_font
+        # Fila de área
+        celda_area = ws.cell(row=fila_actual + row_idx, column=1, value=limpiar_valor_para_excel(area))
+        celda_area.border = border
+        celda_area.alignment = Alignment(horizontal='left', vertical='center')
         
         # Datos de montos
         for col_idx, valor in enumerate(fila_datos, 1):
@@ -1189,10 +1284,25 @@ def crear_hoja_presupuesto_mensual(archivo_excel: str, df_responsables: pd.DataF
             celda.border = border
             celda.number_format = '#,##0.00'
             celda.alignment = Alignment(horizontal='right')
-            
-            if es_total:
-                celda.fill = total_fill
-                celda.font = total_font
+        
+        row_idx += 1
+    
+    # Agregar fila de total general al final si existe
+    if fila_total:
+        total_idx, total_datos = fila_total
+        celda_total = ws.cell(row=fila_actual + row_idx, column=1, value=limpiar_valor_para_excel(total_idx))
+        celda_total.fill = total_fill
+        celda_total.font = total_font
+        celda_total.border = border
+        celda_total.alignment = Alignment(horizontal='left', vertical='center')
+        
+        for col_idx, valor in enumerate(total_datos, 1):
+            celda = ws.cell(row=fila_actual + row_idx, column=col_idx + 1, value=limpiar_valor_para_excel(valor))
+            celda.border = border
+            celda.number_format = '#,##0.00'
+            celda.alignment = Alignment(horizontal='right')
+            celda.fill = total_fill
+            celda.font = total_font
     
     # Ajustar ancho de columnas
     ws.column_dimensions['A'].width = 25
@@ -1303,7 +1413,7 @@ def crear_tabla2_presupuesto_mensual(archivo_excel: str, df_diferencia: pd.DataF
     from openpyxl import load_workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     import pandas as pd
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from dateutil.relativedelta import relativedelta
     
     print(f"\n" + "="*70)
@@ -1316,10 +1426,31 @@ def crear_tabla2_presupuesto_mensual(archivo_excel: str, df_diferencia: pd.DataF
     
     # ===================================================================
     # CALCULAR NOMBRES DE COLUMNAS DINÁMICOS
+    # Basado en el viernes de la semana pasada (igual que la columna SEMANA)
+    # Usa la misma lógica que APIHelper._obtener_viernes_pasado()
     # ===================================================================
-    hoy = datetime.now()
-    mes_actual = hoy
-    mes_anterior = hoy - relativedelta(months=1)
+    import datetime as dt
+    
+    # Obtener el viernes de la semana pasada (misma lógica que en utils.py)
+    hoy = dt.date.today()
+    dia_semana_actual = hoy.weekday()  # lunes=0, viernes=4, domingo=6
+    
+    # Calcular días hasta el viernes de esta semana
+    dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
+    
+    # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
+    # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
+    if dias_hasta_viernes_esta_semana == 0:
+        dias_retroceso = 7
+    else:
+        dias_retroceso = dias_hasta_viernes_esta_semana + 7
+    
+    viernes_pasado = hoy - dt.timedelta(days=dias_retroceso)
+    
+    # Mes actual es el mes del viernes pasado
+    mes_actual = viernes_pasado
+    # Mes anterior es el mes anterior al del viernes pasado
+    mes_anterior = viernes_pasado - relativedelta(months=1)
     
     # Traducción de meses
     meses_espanol = {

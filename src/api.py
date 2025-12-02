@@ -643,6 +643,88 @@ def extraer_diferencia_capex(bq_client, anio_fiscal: str = None) -> pd.DataFrame
         traceback.print_exc()
         return pd.DataFrame()
 
+def generar_id_diferencia(remanente, presupuesto, ejecutado):
+    """
+    Generar ID único para diferencia usando SHA256(remanente + presupuesto + ejecutado)
+    
+    Args:
+        remanente: Valor del remanente
+        presupuesto: Valor del presupuesto
+        ejecutado: Valor del ejecutado
+    
+    Returns:
+        str: ID único en hexadecimal
+    """
+    # Convertir valores a string y normalizar (manejar NaN, None, etc.)
+    remanente_str = str(remanente) if pd.notna(remanente) else "0"
+    presupuesto_str = str(presupuesto) if pd.notna(presupuesto) else "0"
+    ejecutado_str = str(ejecutado) if pd.notna(ejecutado) else "0"
+    
+    # Concatenar valores
+    concatenado = f"{remanente_str}|{presupuesto_str}|{ejecutado_str}"
+    
+    # Generar hash SHA256
+    hash_obj = hashlib.sha256(concatenado.encode('utf-8'))
+    return hash_obj.hexdigest()
+
+
+def verificar_duplicados_diferencia(bq_client, ids_a_verificar: List[str]) -> set:
+    """
+    Verificar qué IDs ya existen en BigQuery para evitar duplicados
+    Procesa en lotes para evitar queries muy largas
+    
+    Args:
+        bq_client: Cliente de BigQuery
+        ids_a_verificar: Lista de IDs a verificar
+    
+    Returns:
+        set: Conjunto de IDs que ya existen en BigQuery
+    """
+    if not ids_a_verificar:
+        return set()
+    
+    try:
+        table_id_diferencia = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET}.{BIGQUERY_TABLE_DIFERENCIA}"
+        ids_existentes = set()
+        batch_size = 1000  # Procesar en lotes de 1000 IDs
+        
+        print(f"🔍 Verificando {len(ids_a_verificar)} IDs en BigQuery (en lotes de {batch_size})...")
+        
+        # Procesar en lotes
+        for i in range(0, len(ids_a_verificar), batch_size):
+            batch = ids_a_verificar[i:i + batch_size]
+            
+            # Escapar IDs para SQL (usar comillas simples y escapar comillas internas)
+            ids_escaped = [f"'{id_val.replace(chr(39), chr(39)+chr(39))}'" for id_val in batch]
+            ids_list = ",".join(ids_escaped)
+            
+            query = f"""
+            SELECT DISTINCT vzla_capex_diferencia_id
+            FROM `{table_id_diferencia}`
+            WHERE vzla_capex_diferencia_id IN ({ids_list})
+            """
+            
+            query_job = bq_client.query(query)
+            resultados = query_job.result()
+            
+            batch_existentes = {row.vzla_capex_diferencia_id for row in resultados}
+            ids_existentes.update(batch_existentes)
+            
+            print(f"   Lote {i//batch_size + 1}: {len(batch_existentes)} duplicados encontrados")
+        
+        print(f"   ✅ Total: {len(ids_existentes)} IDs duplicados encontrados")
+        print(f"   ✅ Total: {len(ids_a_verificar) - len(ids_existentes)} IDs nuevos para cargar")
+        
+        return ids_existentes
+        
+    except Exception as e:
+        print(f"⚠️ Error verificando duplicados: {e}")
+        print(f"   → Continuando sin verificación de duplicados")
+        import traceback
+        traceback.print_exc()
+        return set()
+
+
 def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal: str = None):
     """
     Cargar datos de diferencia a BigQuery (sin columna Diferencia)
@@ -706,10 +788,32 @@ def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal
     # Obtener las áreas de la columna 'area', no del índice
     areas_list = [str(area) for area in df_tabla2['area']]
     
-    # Calcular mes actual para vzla_capex_diferencia_mes
+    # Calcular mes actual para vzla_capex_diferencia_mes basado en el viernes de la semana pasada
     # Formato: 'NOV-25' (mes abreviado - año de 2 dígitos)
+    # Usa la misma lógica que en utils.py (viernes de la semana pasada)
+    import datetime as dt
+    
+    # Obtener el viernes de la semana pasada (misma lógica que en utils.py)
+    hoy_date = dt.date.today()
+    dia_semana_actual = hoy_date.weekday()  # lunes=0, viernes=4, domingo=6
+    
+    # Calcular días hasta el viernes de esta semana
+    dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
+    
+    # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
+    # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
+    if dias_hasta_viernes_esta_semana == 0:
+        dias_retroceso = 7
+    else:
+        dias_retroceso = dias_hasta_viernes_esta_semana + 7
+    
+    viernes_pasado = hoy_date - dt.timedelta(days=dias_retroceso)
+    
+    # Usar el viernes pasado solo para el mes
+    df_bq['vzla_capex_diferencia_mes'] = viernes_pasado.strftime('%b-%y').upper()
+    
+    # La fecha de ejecución es la fecha actual (momento en que se ejecuta el proceso)
     hoy = datetime.now()
-    df_bq['vzla_capex_diferencia_mes'] = hoy.strftime('%b-%y').upper()
     
     # Asignar tipo CAPEX según el área
     # IMPORTANTE: Si df_tabla2 ya tiene la columna 'tipo_capex', usarla directamente
@@ -757,8 +861,39 @@ def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal
     df_bq['vzla_capex_diferencia_ejecutado'] = df_bq[nombre_ejecutado]
     df_bq['vzla_capex_diferencia_fecha_ejecucion'] = hoy
     
-    # Seleccionar solo columnas BigQuery
+    # Generar IDs únicos para cada fila usando SHA256(remanente + presupuesto + ejecutado)
+    print(f"\n🔑 Generando IDs únicos para cada fila...")
+    df_bq['vzla_capex_diferencia_id'] = df_bq.apply(
+        lambda row: generar_id_diferencia(
+            row['vzla_capex_diferencia_remanente'],
+            row['vzla_capex_diferencia_presupuesto'],
+            row['vzla_capex_diferencia_ejecutado']
+        ),
+        axis=1
+    )
+    
+    # Verificar duplicados en BigQuery
+    ids_a_verificar = df_bq['vzla_capex_diferencia_id'].tolist()
+    ids_existentes = verificar_duplicados_diferencia(bq_client, ids_a_verificar)
+    
+    # Filtrar filas que no son duplicados
+    if ids_existentes:
+        filas_antes = len(df_bq)
+        df_bq = df_bq[~df_bq['vzla_capex_diferencia_id'].isin(ids_existentes)]
+        filas_despues = len(df_bq)
+        print(f"\n📊 Filtrado de duplicados:")
+        print(f"   Filas antes: {filas_antes}")
+        print(f"   Filas duplicadas eliminadas: {filas_antes - filas_despues}")
+        print(f"   Filas nuevas a cargar: {filas_despues}")
+    
+    # Si no hay filas nuevas después de filtrar duplicados, abortar
+    if df_bq.empty:
+        print(f"\n✅ No hay datos nuevos para cargar (todos son duplicados)")
+        return
+    
+    # Seleccionar solo columnas BigQuery (incluyendo el ID)
     df_bq = df_bq[[
+        'vzla_capex_diferencia_id',
         'vzla_capex_diferencia_mes',
         'vzla_capex_diferencia_tipo',
         'vzla_capex_diferencia_area',

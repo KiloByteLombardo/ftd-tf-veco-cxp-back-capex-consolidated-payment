@@ -167,7 +167,9 @@ class ExcelProcessor:
         """
         Obtener área para solicitante usando lookup - Implementación fórmula Excel
         
-        EXCEPCIÓN: Si proyecto = "A048" → retorna "AUTOPAGO"
+        EXCEPCIONES:
+        - Si proyecto = "A048" → retorna "AUTOPAGO"
+        - Si solicitante es de TI y proyecto = "VENE" → retorna "DIR CONSTRUCCIÓN Y PROYECTOS"
         
         Args:
             solicitante: Nombre del solicitante
@@ -176,7 +178,7 @@ class ExcelProcessor:
         Returns:
             str: Área correspondiente
         """
-        # EXCEPCIÓN: Si proyecto es A048, retornar AUTOPAGO directamente
+        # EXCEPCIÓN 1: Si proyecto es A048, retornar AUTOPAGO directamente
         if proyecto and str(proyecto).strip().upper() == "A048":
             return "AUTOPAGO"
         
@@ -190,25 +192,41 @@ class ExcelProcessor:
         
         # Limpiar y buscar
         solicitante_clean = str(solicitante).strip().upper()
+        proyecto_clean = str(proyecto).strip().upper() if proyecto else ""
         
         # Búsqueda exacta
+        area_encontrada = None
         if solicitante_clean in self.lookup_solicitantes_areas:
-            return self.lookup_solicitantes_areas[solicitante_clean]
+            area_encontrada = self.lookup_solicitantes_areas[solicitante_clean]
+        else:
+            # Búsqueda parcial por palabras clave (apellidos)
+            for sol_ref, area in self.lookup_solicitantes_areas.items():
+                # Buscar por coincidencia parcial
+                if solicitante_clean in sol_ref or sol_ref in solicitante_clean:
+                    area_encontrada = area
+                    break
+                
+                # Buscar por apellidos (última palabra de cada nombre)
+                palabras_ref = sol_ref.split()
+                palabras_buscar = solicitante_clean.split()
+                
+                if len(palabras_ref) > 0 and len(palabras_buscar) > 0:
+                    # Comparar último apellido
+                    if palabras_ref[-1] in palabras_buscar or palabras_buscar[-1] in palabras_ref:
+                        area_encontrada = area
+                        break
         
-        # Búsqueda parcial por palabras clave (apellidos)
-        for sol_ref, area in self.lookup_solicitantes_areas.items():
-            # Buscar por coincidencia parcial
-            if solicitante_clean in sol_ref or sol_ref in solicitante_clean:
-                return area
-            
-            # Buscar por apellidos (última palabra de cada nombre)
-            palabras_ref = sol_ref.split()
-            palabras_buscar = solicitante_clean.split()
-            
-            if len(palabras_ref) > 0 and len(palabras_buscar) > 0:
-                # Comparar último apellido
-                if palabras_ref[-1] in palabras_buscar or palabras_buscar[-1] in palabras_ref:
-                    return area
+        # EXCEPCIÓN 2: Si solicitante es de TI y proyecto es VENE, asignar DIR CONSTRUCCIÓN Y PROYECTOS
+        if area_encontrada:
+            area_clean = str(area_encontrada).strip().upper()
+            # Verificar si el área contiene "TI" (Tecnología de Información)
+            if "TI" in area_clean or "TECNOLOGIA" in area_clean or "TECNOLOGÍA" in area_clean or "INFORMACION" in area_clean or "INFORMACIÓN" in area_clean:
+                if proyecto_clean == "VENE":
+                    return "DIR CONSTRUCCIÓN Y PROYECTOS"
+        
+        # Retornar área encontrada o área no encontrada
+        if area_encontrada:
+            return area_encontrada
         
         # No encontrado en Google Sheet
         return "AREA_NO_ENCONTRADA"
@@ -715,20 +733,89 @@ class ExcelProcessor:
 
 
     
-    def obtener_semana_actual(self):
+    def _obtener_viernes_pasado(self):
+        """
+        Calcula la fecha del viernes de la semana pasada.
+        Ejemplo: Si hoy es lunes 1 de diciembre, retorna el viernes 28 de noviembre.
+        """
         hoy = datetime.date.today()
-        primer_dia = hoy.replace(day=1)
-        dias_transcurridos = (hoy - primer_dia).days
-        semana = (dias_transcurridos // 7) + 1
+        dia_semana_actual = hoy.weekday()  # lunes=0, viernes=4, domingo=6
+        
+        # Calcular días hasta el viernes de esta semana
+        dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
+        
+        # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
+        # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
+        if dias_hasta_viernes_esta_semana == 0:
+            dias_retroceso = 7
+        else:
+            dias_retroceso = dias_hasta_viernes_esta_semana + 7
+        
+        return hoy - datetime.timedelta(days=dias_retroceso)
+    
+    def obtener_semana_actual(self):
+        """
+        Obtiene el número de semana del mes basado en el viernes de la semana pasada.
+        Ejemplo: Si hoy es lunes 1 de diciembre, toma el viernes pasado (28 de noviembre),
+        entonces semana = 4 (cuarta semana de noviembre).
+        
+        Regla especial: Si el viernes pasado está en el mes anterior y hoy es del mes siguiente
+        (no inclusivo del lunes), entonces el viernes pasado es semana 4.
+        """
+        viernes_pasado = self._obtener_viernes_pasado()
+        hoy = datetime.date.today()
+        
+        # Calcular semana del mes basada en el viernes pasado
+        primer_dia_mes = viernes_pasado.replace(day=1)
+        dias_transcurridos = (viernes_pasado - primer_dia_mes).days
+        
+        # Calcular qué día de la semana es el día 1 del mes (lunes=0, domingo=6)
+        dia_semana_primer_dia = primer_dia_mes.weekday()
+        
+        # Calcular en qué semana del mes está el viernes pasado
+        # La semana 1 empieza el lunes de la semana que contiene el día 1
+        # Si el día 1 es lunes, semana 1 = días 1-7
+        # Si el día 1 es martes, semana 1 incluye el lunes anterior (último día del mes anterior)
+        # Necesitamos calcular cuántas semanas completas han pasado desde el lunes de la semana del día 1
+        
+        # Encontrar el lunes de la semana que contiene el día 1
+        dias_retroceso_lunes = dia_semana_primer_dia  # días desde el lunes hasta el día 1
+        lunes_semana_1 = primer_dia_mes - datetime.timedelta(days=dias_retroceso_lunes)
+        
+        # Calcular días desde el lunes de la semana 1 hasta el viernes pasado
+        dias_desde_lunes_semana_1 = (viernes_pasado - lunes_semana_1).days
+        
+        # Calcular semana (cada 7 días es una semana, empezando desde 1)
+        semana = (dias_desde_lunes_semana_1 // 7) + 1
+        
+        # Regla especial: Si el viernes pasado está en el mes anterior y hoy es del mes siguiente
+        # (especialmente si hoy es lunes), entonces el viernes pasado es semana 4
+        if viernes_pasado.month < hoy.month:
+            # Si el viernes pasado está en los días 22-31 del mes anterior, es semana 4
+            if viernes_pasado.day >= 22:
+                semana = 4
+        
+        # Asegurar que si el viernes pasado está en días 22-28, es semana 4
+        # (independientemente del mes, si está en esos días, es la cuarta semana)
+        if viernes_pasado.day >= 22 and viernes_pasado.day <= 28:
+            semana = 4
+        
         return semana
     
     def obtener_mes_actual(self):
+        """
+        Obtiene el mes basado en el viernes de la semana pasada.
+        Ejemplo: Si hoy es lunes 1 de diciembre, toma el viernes pasado (28 de noviembre),
+        entonces mes = "NOVIEMBRE".
+        """
+        viernes_pasado = self._obtener_viernes_pasado()
+        
         meses = {
             1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
             5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
             9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
         }
-        return meses[datetime.date.today().month]
+        return meses[viernes_pasado.month]
     
     def obtener_anio_fiscal_actual(self):
         """
