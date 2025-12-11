@@ -31,23 +31,31 @@ try:
     from countries.venezuela import (
         procesar_venezuela,
         generar_excel_venezuela_con_detalle,
-        agregar_hoja_detalle_al_excel,
-        crear_hoja_capex_pagado_por_recibo,
-        crear_hoja_presupuesto_mensual,
-        extraer_tabla2_capex_pagado_recibo,
-        crear_tabla2_presupuesto_mensual,
+        agregar_hoja_detalle_al_excel as agregar_hoja_detalle_venezuela,
+        crear_hoja_capex_pagado_por_recibo as crear_hoja_capex_venezuela,
+        crear_hoja_presupuesto_mensual as crear_hoja_presupuesto_venezuela,
+        extraer_tabla2_capex_pagado_recibo as extraer_tabla2_venezuela,
+        crear_tabla2_presupuesto_mensual as crear_tabla2_venezuela,
     )
     VENEZUELA_MODULE_AVAILABLE = True
     print("✅ Módulo venezuela.py importado correctamente")
 except ImportError as e:
     print(f"⚠️ No se pudo importar venezuela: {e}")
 
-# try:
-#     from countries.colombia import generar_excel_colombia_con_detalle
-#     COLOMBIA_MODULE_AVAILABLE = True
-#     print("✅ Módulo colombia.py importado correctamente")
-# except ImportError as e:
-#     print(f"⚠️ No se pudo importar colombia: {e}")
+try:
+    from countries.colombia import (
+        procesar_colombia,
+        generar_excel_colombia_con_detalle,
+        agregar_hoja_detalle_al_excel as agregar_hoja_detalle_colombia,
+        crear_hoja_capex_pagado_por_recibo as crear_hoja_capex_colombia,
+        crear_hoja_presupuesto_mensual as crear_hoja_presupuesto_colombia,
+        extraer_tabla2_capex_pagado_recibo as extraer_tabla2_colombia,
+        crear_tabla2_presupuesto_mensual as crear_tabla2_colombia,
+    )
+    COLOMBIA_MODULE_AVAILABLE = True
+    print("✅ Módulo colombia.py importado correctamente")
+except ImportError as e:
+    print(f"⚠️ No se pudo importar colombia: {e}")
 
 # try:
 #     from countries.argentina import generar_excel_argentina_con_detalle
@@ -71,9 +79,13 @@ CORS(app, resources={
 
 GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID')
 BIGQUERY_DATASET = os.getenv('BIGQUERY_DATASET')
+BIGQUERY_DATASET_COP = os.getenv('BIGQUERY_DATASET_COP')
 BIGQUERY_TABLE = os.getenv('BIGQUERY_TABLE')
+BIGQUERY_TABLE_COP = os.getenv('BIGQUERY_TABLE_COP')
 BIGQUERY_TABLE_RESPONSABLE = os.getenv('BIGQUERY_TABLE_RESPONSABLE')
+BIGQUERY_TABLE_RESPONSABLE_COP = os.getenv('BIGQUERY_TABLE_RESPONSABLE_COP')
 BIGQUERY_TABLE_DIFERENCIA = os.getenv('BIGQUERY_TABLE_DIFERENCIA')
+BIGQUERY_TABLE_DIFERENCIA_COP = os.getenv('BIGQUERY_TABLE_DIFERENCIA_COP')
 CREDENTIALS_FILE = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 
 # =================== CLIENTE BIGQUERY ===================
@@ -113,7 +125,7 @@ def generar_id_unico(numero_factura: str, proveedor: str) -> str:
     hash_obj = hashlib.sha256(concatenado.encode('utf-8'))
     return hash_obj.hexdigest()
 
-def mapear_columnas_bosqueto_a_bigquery(df_bosqueto: pd.DataFrame) -> pd.DataFrame:
+def mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto: pd.DataFrame) -> pd.DataFrame:
     """
     Mapear columnas del BOSQUETO Excel a esquema de BigQuery
     """
@@ -251,9 +263,148 @@ def mapear_columnas_bosqueto_a_bigquery(df_bosqueto: pd.DataFrame) -> pd.DataFra
     
     return df_mapped
 
+
+def mapear_columnas_bosqueto_a_bigquery_colombia(df_bosqueto: pd.DataFrame) -> pd.DataFrame:
+    """
+    Mapear columnas del BOSQUETO Excel a esquema de BigQuery
+    """
+    print(f"📋 Mapeando {len(df_bosqueto)} filas del BOSQUETO a BigQuery...")
+    
+    columnas_mapeo = {
+        'Numero de Factura': 'col_capex_pago_numero_factura',
+        'Numero de OC': 'col_capex_pago_orden_compra',
+        'Tipo Factura': 'col_capex_pago_tipo_documento',
+        'Nombre Lote': 'col_capex_pago_nombre_lote',
+        'Proveedor': 'col_capex_pago_proveedor',
+        'RIF': 'col_capex_pago_rif',
+        'Fecha Documento': 'col_capex_pago_fecha_documento',
+        'Tienda': 'col_capex_pago_tienda',
+        'Sucursal': 'col_capex_pago_sucursal',
+        'Monto': 'col_capex_pago_monto',
+        'Moneda': 'col_capex_pago_moneda',
+        'Fecha Vencimiento': 'col_capex_pago_fecha_vencimiento',
+        'Cuenta': 'col_capex_pago_cuenta',
+        'Id Cta': 'col_capex_pago_id_cuenta',
+        'Método de Pago': 'col_capex_pago_metodo_pago',
+        'Pago Independiente': 'col_capex_pago_es_independiente',
+        'Prioridad': 'col_capex_pago_prioridad',
+        'Monto CAPEX EXT': 'col_capex_pago_monto_ext',
+        'Monto CAPEX ORD': 'col_capex_pago_monto_ord',
+        'Monto CADM': 'col_capex_pago_monto_cadm',
+        'Fecha Creación': 'col_capex_pago_fecha_creacion',
+        'Solicitante': 'col_capex_pago_solicitante',
+        'Monto USD': 'col_capex_pago_monto_usd',
+        'CATEGORIA': 'col_capex_pago_categoria',
+        'MONTO A PAGAR CAPEX': 'col_capex_pago_monto_pagar_capex',
+        'MONTO A PAGAR OPEX': 'col_capex_pago_monto_pagar_opex',
+        'VALIDACION': 'col_capex_pago_validacion',
+        'METODO DE PAGO': 'col_capex_pago_calcu_moneda',
+        'SEMANA': 'col_capex_pago_semana_pago',
+        'MES DE PAGO': 'col_capex_pago_mes_pago',
+        'TIPO DE CAPEX': 'col_capex_pago_tipo_capex',
+        'MONTO ORD': 'col_capex_pago_calcu_monto_ord',
+        'MONTO EXT': 'col_capex_pago_calcu_monto_ext',
+        'DIA DE PAGO': 'col_capex_pago_dia_pago',
+        'TIENDA_LOOKUP': 'col_capex_pago_calcu_tienda',
+        'CECO': 'col_capex_pago_ceco',
+        'PROYECTO': 'col_capex_pago_proyecto',
+        'AREA': 'col_capex_pago_area',
+        'FECHA RECIBO': 'col_capex_pago_fecha_recibo',
+        'DESCRIPCIÓN': 'col_capex_pago_descripcion',
+    }
+    
+    df_mapped = pd.DataFrame()
+    
+    for col_excel, col_bq in columnas_mapeo.items():
+        if col_excel in df_bosqueto.columns:
+            df_mapped[col_bq] = df_bosqueto[col_excel]
+        else:
+            print(f"⚠️ Columna '{col_excel}' no encontrada")
+            df_mapped[col_bq] = None
+    
+    # Generar ID único
+    print("🔐 Generando IDs únicos con SHA256...")
+    df_mapped['col_capex_pago_id'] = df_mapped.apply(
+        lambda row: generar_id_unico(
+            row['col_capex_pago_numero_factura'],
+            row['col_capex_pago_proveedor']
+        ),
+        axis=1
+    )
+    
+    # Procesar AÑO FISCAL
+    if 'AÑO FISCAL' in df_bosqueto.columns:
+        anio_fiscal_str = df_bosqueto['AÑO FISCAL'].iloc[0] if len(df_bosqueto) > 0 else "2025-2026"
+        try:
+            if '-' in str(anio_fiscal_str):
+                partes = str(anio_fiscal_str).split('-')
+                df_mapped['col_capex_pago_current_fiscal_year'] = int(partes[0])
+                df_mapped['col_capex_pago_next_fiscal_year'] = int(partes[1])
+            else:
+                anio_actual = datetime.now().year
+                df_mapped['col_capex_pago_current_fiscal_year'] = anio_actual
+                df_mapped['col_capex_pago_next_fiscal_year'] = anio_actual + 1
+        except:
+            anio_actual = datetime.now().year
+            df_mapped['col_capex_pago_current_fiscal_year'] = anio_actual
+            df_mapped['col_capex_pago_next_fiscal_year'] = anio_actual + 1
+    else:
+        anio_actual = datetime.now().year
+        df_mapped['col_capex_pago_current_fiscal_year'] = anio_actual
+        df_mapped['col_capex_pago_next_fiscal_year'] = anio_actual + 1
+    
+    # Agregar columna de país
+    df_mapped['col_capex_pago_pais'] = 'Colombia'
+    
+    # Convertir fechas a datetime
+    columnas_fecha = [
+        'col_capex_pago_fecha_documento',
+        'col_capex_pago_fecha_vencimiento',
+        'col_capex_pago_fecha_creacion',
+        'col_capex_pago_fecha_recibo'
+    ]
+    
+    for col_fecha in columnas_fecha:
+        if col_fecha in df_mapped.columns:
+            # Especificar formato y usar utc=False para evitar warnings
+            df_mapped[col_fecha] = pd.to_datetime(
+            df_mapped[col_fecha],
+            format='mixed', # Permite múltiples formatos
+            errors='coerce',
+            utc=False
+            )
+
+    # Convertir prioridad a INTEGER
+    if 'col_capex_pago_prioridad' in df_mapped.columns:
+        df_mapped['col_capex_pago_prioridad'] = pd.to_numeric(
+            df_mapped['col_capex_pago_prioridad'], 
+            errors='coerce'
+        ).fillna(0).astype(int)
+    
+    # Convertir columnas numéricas a FLOAT
+    columnas_float = [
+        'col_capex_pago_monto',
+        'col_capex_pago_monto_ext',
+        'col_capex_pago_monto_ord',
+        'col_capex_pago_monto_cadm',
+        'col_capex_pago_monto_usd',
+        'col_capex_pago_monto_pagar_capex',
+        'col_capex_pago_monto_pagar_opex',
+        'col_capex_pago_calcu_monto_ord',
+        'col_capex_pago_calcu_monto_ext'
+    ]
+    
+    for col_float in columnas_float:
+        if col_float in df_mapped.columns:
+            df_mapped[col_float] = pd.to_numeric(df_mapped[col_float], errors='coerce')
+    
+    print(f"✅ Mapeo completado: {len(df_mapped)} filas, {len(df_mapped.columns)} columnas")
+    
+    return df_mapped
+
 # =================== VERIFICACIÓN DE DUPLICADOS ===================
 
-def verificar_duplicados_batch(client: bigquery.Client, ids_a_verificar: List[str]) -> Dict[str, bool]:
+def verificar_duplicados_batch_venezuela(client: bigquery.Client, ids_a_verificar: List[str]) -> Dict[str, bool]:
     """
     Verificar duplicados en batch usando query
     """
@@ -294,6 +445,46 @@ def verificar_duplicados_batch(client: bigquery.Client, ids_a_verificar: List[st
     
     return resultados
 
+def verificar_duplicados_batch_colombia(client: bigquery.Client, ids_a_verificar: List[str]) -> Dict[str, bool]:
+    """
+    Verificar duplicados en batch usando query
+    """
+    if not ids_a_verificar:
+        return {}
+    
+    print(f"🔍 Verificando {len(ids_a_verificar)} IDs en BigQuery...")
+    
+    batch_size = 1000
+    resultados = {}
+    
+    for i in range(0, len(ids_a_verificar), batch_size):
+        batch = ids_a_verificar[i:i+batch_size]
+        ids_str = "', '".join(batch)
+        
+        query = f"""
+        SELECT col_capex_pago_id
+        FROM `{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_COP}`
+        WHERE col_capex_pago_id IN ('{ids_str}')
+        """
+        
+        try:
+            query_job = client.query(query)
+            results = query_job.result()
+            
+            for row in results:
+                resultados[row.col_capex_pago_id] = True
+            
+        except Exception as e:
+            print(f"⚠️ Error en batch {i//batch_size + 1}: {e}")
+    
+    for id_check in ids_a_verificar:
+        if id_check not in resultados:
+            resultados[id_check] = False
+    
+    duplicados_count = sum(1 for existe in resultados.values() if existe)
+    print(f"📊 Resultado: {duplicados_count} duplicados, {len(ids_a_verificar) - duplicados_count} nuevos")
+    
+    return resultados
 
 # =================== ROUTER DE GENERACIÓN DE EXCEL POR PAÍS ===================
 
@@ -352,20 +543,20 @@ def generar_excel_consolidado(df_bosqueto: pd.DataFrame,
     if pais_lower == 'venezuela':
         if VENEZUELA_MODULE_AVAILABLE:
             print(f"   ✅ Usando generador específico de Venezuela")
-            return agregar_hoja_detalle_al_excel(df_bosqueto, df_detalle)
+            return agregar_hoja_detalle_venezuela(df_bosqueto, df_detalle)
         else:
             print(f"   ⚠️ Módulo Venezuela no disponible, usando genérico")
             return generar_excel_generico(df_bosqueto, df_detalle)
-    
-    # # Colombia
-    # elif pais_lower == 'colombia':
-    #     if COLOMBIA_MODULE_AVAILABLE:
-    #         print(f"   ✅ Usando generador específico de Colombia")
-    #         return generar_excel_colombia_con_detalle(df_bosqueto, df_detalle)
-    #     else:
-    #         print(f"   ⚠️ Módulo Colombia no disponible, usando genérico")
-    #         return generar_excel_generico(df_bosqueto, df_detalle)
-    
+
+    # Colombia
+    if pais_lower == 'colombia':
+        if COLOMBIA_MODULE_AVAILABLE:
+            print(f"   ✅ Usando generador específico de Colombia")
+            return agregar_hoja_detalle_colombia(df_bosqueto, df_detalle)
+        else:
+            print(f"   ⚠️ Módulo Venezuela no disponible, usando genérico")
+            return generar_excel_generico(df_bosqueto, df_detalle)
+
     # # Argentina
     # elif pais_lower == 'argentina':
     #     if ARGENTINA_MODULE_AVAILABLE:
@@ -381,7 +572,7 @@ def generar_excel_consolidado(df_bosqueto: pd.DataFrame,
         return generar_excel_generico(df_bosqueto, df_detalle)
 
 # =================== CARGA A BIGQUERY ===================
-def cargar_datos_a_bigquery(client: bigquery.Client, df: pd.DataFrame) -> dict:
+def cargar_datos_a_bigquery_venezuela(client: bigquery.Client, df: pd.DataFrame) -> dict:
     """
     Cargar datos a BigQuery con verificación automática de duplicados.
     Retorna un dict con todo lo necesario.
@@ -392,7 +583,7 @@ def cargar_datos_a_bigquery(client: bigquery.Client, df: pd.DataFrame) -> dict:
 
     # PASO 1: Verificar duplicados (embebido)
     ids_a_verificar = df['vzla_capex_pago_id'].tolist()
-    duplicados_map = verificar_duplicados_batch(client, ids_a_verificar)
+    duplicados_map = verificar_duplicados_batch_venezuela(client, ids_a_verificar)
     df_nuevos = df[df['vzla_capex_pago_id'].apply(lambda x: not duplicados_map.get(x, False))]
     registros_duplicados = len(df) - len(df_nuevos)
 
@@ -420,7 +611,72 @@ def cargar_datos_a_bigquery(client: bigquery.Client, df: pd.DataFrame) -> dict:
     )
 
     try:
-        df_nuevos = ajustar_df_a_schema_bigquery(df_nuevos, client, BIGQUERY_DATASET, BIGQUERY_TABLE)
+        df_nuevos = ajustar_df_a_schema_bigquery_venezuela(df_nuevos, client, BIGQUERY_DATASET, BIGQUERY_TABLE)
+        # Justo antes de cargar a BigQuery, añade:
+        print("🧾 Tipos de columnas a cargar en BigQuery:")
+        for col in df_nuevos.columns:
+            tipo = df_nuevos[col].dtype
+            muestra = df_nuevos[col].iloc[:3].tolist()
+            print(f" - {col}: {tipo} | ejemplo: {muestra}")
+
+        job = client.load_table_from_dataframe(df_nuevos, table_id, job_config=job_config)
+        job.result()
+
+        print(f"✅ Carga completada exitosamente")
+        print(f"   📊 Filas cargadas: {len(df_nuevos)}")
+
+        result['message'] = f'Carga exitosa: {len(df_nuevos)} registros nuevos, {registros_duplicados} duplicados omitidos'
+        result['df_cargados'] = df_nuevos
+        return result
+
+    except Exception as e:
+        print(f"❌ Error cargando datos: {e}")
+        result['success'] = False
+        result['error'] = str(e)
+        result['message'] = f'Error en carga: {str(e)}'
+        result['df_cargados'] = pd.DataFrame()
+        return result
+
+def cargar_datos_a_bigquery_colombia(client: bigquery.Client, df: pd.DataFrame) -> dict:
+    """
+    Cargar datos a BigQuery con verificación automática de duplicados.
+    Retorna un dict con todo lo necesario.
+    """
+    table_id = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_COP}"
+    print(f"📤 Cargando datos a BigQuery: {table_id}")
+    print(f"   Total de registros: {len(df)}")
+
+    # PASO 1: Verificar duplicados (embebido)
+    ids_a_verificar = df['col_capex_pago_id'].tolist()
+    duplicados_map = verificar_duplicados_batch_colombia(client, ids_a_verificar)
+    df_nuevos = df[df['col_capex_pago_id'].apply(lambda x: not duplicados_map.get(x, False))]
+    registros_duplicados = len(df) - len(df_nuevos)
+
+    print(f"   🔄 Duplicados omitidos: {registros_duplicados}")
+    print(f"   ✅ Registros nuevos a cargar: {len(df_nuevos)}")
+
+    result = {
+        'success': True,
+        'total_rows': len(df),
+        'rows_loaded': len(df_nuevos),
+        'rows_duplicated': registros_duplicados,
+        'table_id': table_id,
+        'message': '',
+        'df_cargados': None
+    }
+
+    if len(df_nuevos) == 0:
+        result['message'] = 'No hay registros nuevos para cargar (todos son duplicados)'
+        result['df_cargados'] = pd.DataFrame()
+        return result
+
+    job_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
+    )
+
+    try:
+        df_nuevos = ajustar_df_a_schema_bigquery_colombia(df_nuevos, client, BIGQUERY_DATASET_COP, BIGQUERY_TABLE_COP)
         # Justo antes de cargar a BigQuery, añade:
         print("🧾 Tipos de columnas a cargar en BigQuery:")
         for col in df_nuevos.columns:
@@ -448,7 +704,7 @@ def cargar_datos_a_bigquery(client: bigquery.Client, df: pd.DataFrame) -> dict:
 
 # =================== EXTRACCIÓN DESDE BIGQUERY POR LOTES ===================
 
-def extraer_tabla_completa_por_lotes(client: bigquery.Client) -> pd.DataFrame:
+def extraer_tabla_completa_por_lotes_venezuela(client: bigquery.Client) -> pd.DataFrame:
     """
     Extraer toda la tabla de BigQuery por lotes para evitar timeouts
     """
@@ -478,6 +734,61 @@ def extraer_tabla_completa_por_lotes(client: bigquery.Client) -> pd.DataFrame:
         SELECT *
         FROM {table_id}
         ORDER BY vzla_capex_pago_id
+        LIMIT {BATCH_SIZE}
+        OFFSET {offset}
+        """
+        
+        try:
+            df_batch = client.query(query).to_dataframe()
+            all_dataframes.append(df_batch)
+            offset += BATCH_SIZE
+            
+            print(f"   ✅ Lote extraído: {len(df_batch)} filas")
+            
+        except Exception as e:
+            print(f"   ❌ Error extrayendo lote: {e}")
+            break
+    
+    if not all_dataframes:
+        return pd.DataFrame()
+    
+    # Combinar todos los lotes
+    df_completo = pd.concat(all_dataframes, ignore_index=True)
+    print(f"✅ Extracción completa: {len(df_completo)} filas")
+    
+    return df_completo
+
+
+def extraer_tabla_completa_por_lotes_colombia(client: bigquery.Client) -> pd.DataFrame:
+    """
+    Extraer toda la tabla de BigQuery por lotes para evitar timeouts
+    """
+    table_id = f"`{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_COP}`"
+    
+    print(f"📊 Extrayendo datos de BigQuery por lotes...")
+    
+    # Primero, contar cuántas filas hay
+    count_query = f"SELECT COUNT(*) as total FROM {table_id}"
+    count_result = client.query(count_query).result()
+    total_rows = list(count_result)[0].total
+    
+    print(f"   Total de filas en la tabla: {total_rows}")
+    
+    if total_rows == 0:
+        print("⚠️ La tabla está vacía")
+        return pd.DataFrame()
+    
+    # Extraer por lotes usando LIMIT y OFFSET
+    all_dataframes = []
+    offset = 0
+    
+    while offset < total_rows:
+        print(f"   Extrayendo lote: filas {offset} a {offset + BATCH_SIZE}")
+        
+        query = f"""
+        SELECT *
+        FROM {table_id}
+        ORDER BY col_capex_pago_id
         LIMIT {BATCH_SIZE}
         OFFSET {offset}
         """
@@ -567,7 +878,7 @@ def extraer_responsables_capex(bq_client, anio_fiscal: str = None) -> pd.DataFra
         traceback.print_exc()
         return pd.DataFrame()
 
-def extraer_diferencia_capex(bq_client, anio_fiscal: str = None) -> pd.DataFrame:
+def extraer_diferencia_capex_venezuela(bq_client, anio_fiscal: str = None) -> pd.DataFrame:
     """
     Extraer datos de vzla_capex_pago_diferencia (Presupuesto + Remanente)
     Particionada por vzla_capex_diferencia_fecha_ejecucion
@@ -643,6 +954,148 @@ def extraer_diferencia_capex(bq_client, anio_fiscal: str = None) -> pd.DataFrame
         traceback.print_exc()
         return pd.DataFrame()
 
+
+def extraer_responsables_capex_colombia(bq_client, anio_fiscal: str = None) -> pd.DataFrame:
+    """
+    Extraer datos de la tabla col_capex_pago_responsable de BigQuery
+    
+    Args:
+        anio_fiscal: Ej: "2025-2026" (si es None, usa el actual)
+    """
+    from google.cloud import bigquery
+    from datetime import datetime
+    
+    print(f"\n📊 Extrayendo datos de col_capex_pago_responsable...")
+    
+    # Calcular año fiscal actual si no se proporciona
+    if not anio_fiscal:
+        hoy = datetime.now()
+        if hoy.month >= 8:  # Agosto o después
+            anio_inicio = hoy.year
+            anio_fin = hoy.year + 1
+        else:
+            anio_inicio = hoy.year - 1
+            anio_fin = hoy.year
+        anio_fiscal = f"{anio_inicio}-{anio_fin}"
+    
+    print(f"   📅 Año fiscal: {anio_fiscal}")
+    
+    # Calcular rango de fechas del año fiscal (Agosto a Julio)
+    anio_inicio_int = int(anio_fiscal.split('-')[0])
+    fecha_inicio = f"{anio_inicio_int}-08-01"
+    fecha_fin = f"{anio_inicio_int + 1}-07-31"
+    
+    print(f"   📅 Rango de fechas: {fecha_inicio} a {fecha_fin}")
+    
+    table_id_responsable = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_RESPONSABLE_COP}"
+    query = f"""
+    SELECT
+        col_capex_responsable_anio_fiscal,
+        col_capex_responsable_fecha,
+        col_capex_responsable_tipo,
+        col_capex_responsable_area,
+        col_capex_responsable_monto
+    FROM `{table_id_responsable}`
+    WHERE col_capex_responsable_fecha BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
+      AND col_capex_responsable_anio_fiscal = '{anio_fiscal}'
+    ORDER BY col_capex_responsable_fecha
+    """
+    
+    try:
+        df_responsables = bq_client.query(query).to_dataframe()
+        print(f"✅ {len(df_responsables)} registros extraídos")
+        
+        if not df_responsables.empty:
+            print(f"\n📋 Columnas: {list(df_responsables.columns)}")
+            print(f"📋 Áreas únicas: {df_responsables['col_capex_responsable_area'].nunique()}")
+            print(f"📋 Tipos CAPEX: {df_responsables['col_capex_responsable_tipo'].unique()}")
+            print(f"\n📊 Muestra de datos:")
+            print(df_responsables.head())
+        
+        return df_responsables
+        
+    except Exception as e:
+        print(f"❌ Error extrayendo datos: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+
+def extraer_diferencia_capex_colombia(bq_client, anio_fiscal: str = None) -> pd.DataFrame:
+    """
+    Extraer datos de col_capex_pago_diferencia (Presupuesto + Remanente)
+    Particionada por col_capex_diferencia_fecha_ejecucion
+    Clustered by col_capex_diferencia_area
+    """
+    
+    print(f"\n📊 Extrayendo datos de col_capex_pago_diferencia...")
+    
+    # Calcular año fiscal actual si no se proporciona
+    if not anio_fiscal:
+        hoy = datetime.now()
+        if hoy.month >= 8:
+            anio_inicio = hoy.year
+            anio_fin = hoy.year + 1
+        else:
+            anio_inicio = hoy.year - 1
+            anio_fin = hoy.year
+        anio_fiscal = f"{anio_inicio}-{anio_fin}"
+    
+    print(f"   📅 Año fiscal: {anio_fiscal}")
+    
+    # Calcular rango de fechas del año fiscal (Agosto a Julio)
+    anio_inicio_int = int(anio_fiscal.split('-')[0])
+    fecha_inicio = f"{anio_inicio_int}-08-01"
+    fecha_fin = f"{anio_inicio_int + 1}-07-31"
+    
+    print(f"   📅 Rango de fechas: {fecha_inicio} a {fecha_fin}")
+    
+    table_id_diferencia = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_DIFERENCIA_COP}"
+    query = f"""
+    WITH datos_recientes AS (
+        SELECT
+            col_capex_diferencia_mes,
+            col_capex_diferencia_tipo,
+            col_capex_diferencia_area,
+            col_capex_diferencia_remanente,
+            col_capex_diferencia_presupuesto,
+            col_capex_diferencia_fecha_ejecucion,
+            ROW_NUMBER() OVER (
+                PARTITION BY col_capex_diferencia_area, col_capex_diferencia_tipo, col_capex_diferencia_mes
+                ORDER BY col_capex_diferencia_fecha_ejecucion DESC
+            ) as rn
+        FROM `{table_id_diferencia}`
+        WHERE col_capex_diferencia_fecha_ejecucion BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
+    )
+    SELECT
+        col_capex_diferencia_mes,
+        col_capex_diferencia_tipo,
+        col_capex_diferencia_area,
+        col_capex_diferencia_remanente,
+        col_capex_diferencia_presupuesto,
+        col_capex_diferencia_fecha_ejecucion
+    FROM datos_recientes
+    WHERE rn = 1
+    ORDER BY col_capex_diferencia_area, col_capex_diferencia_tipo
+    """
+    
+    try:
+        df_diferencia = bq_client.query(query).to_dataframe()
+        print(f"✅ {len(df_diferencia)} registros extraídos")
+        
+        if not df_diferencia.empty:
+            print(f"\n📋 Áreas: {df_diferencia['col_capex_diferencia_area'].nunique()}")
+            print(f"📋 Tipos: {df_diferencia['col_capex_diferencia_tipo'].unique()}")
+            print(f"\n📊 Muestra:")
+            print(df_diferencia.head(10))
+        
+        return df_diferencia
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame()
+
 def generar_id_diferencia(remanente, presupuesto, ejecutado):
     """
     Generar ID único para diferencia usando SHA256(remanente + presupuesto + ejecutado)
@@ -668,7 +1121,7 @@ def generar_id_diferencia(remanente, presupuesto, ejecutado):
     return hash_obj.hexdigest()
 
 
-def verificar_duplicados_diferencia(bq_client, ids_a_verificar: List[str]) -> set:
+def verificar_duplicados_diferencia_venezuela(bq_client, ids_a_verificar: List[str]) -> set:
     """
     Verificar qué IDs ya existen en BigQuery para evitar duplicados
     Procesa en lotes para evitar queries muy largas
@@ -725,7 +1178,7 @@ def verificar_duplicados_diferencia(bq_client, ids_a_verificar: List[str]) -> se
         return set()
 
 
-def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal: str = None):
+def cargar_diferencia_a_bigquery_venezuela(bq_client, df_tabla2: pd.DataFrame, anio_fiscal: str = None):
     """
     Cargar datos de diferencia a BigQuery (sin columna Diferencia)
     Respetando particiones y clustering
@@ -874,7 +1327,7 @@ def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal
     
     # Verificar duplicados en BigQuery
     ids_a_verificar = df_bq['vzla_capex_diferencia_id'].tolist()
-    ids_existentes = verificar_duplicados_diferencia(bq_client, ids_a_verificar)
+    ids_existentes = verificar_duplicados_diferencia_venezuela(bq_client, ids_a_verificar)
     
     # Filtrar filas que no son duplicados
     if ids_existentes:
@@ -917,7 +1370,7 @@ def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal
     try:
         # Ajustar DataFrame al schema de BigQuery antes de cargar
         print(f"\n🔧 Ajustando DataFrame al schema de BigQuery...")
-        df_bq = ajustar_df_a_schema_bigquery(df_bq, bq_client, BIGQUERY_DATASET, BIGQUERY_TABLE_DIFERENCIA)
+        df_bq = ajustar_df_a_schema_bigquery_venezuela(df_bq, bq_client, BIGQUERY_DATASET, BIGQUERY_TABLE_DIFERENCIA)
         
         # Verificar nuevamente las columnas después del ajuste
         print(f"📋 Columnas después del ajuste: {list(df_bq.columns)}")
@@ -931,6 +1384,283 @@ def cargar_diferencia_a_bigquery(bq_client, df_tabla2: pd.DataFrame, anio_fiscal
         )
         
         table_id_diferencia = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET}.{BIGQUERY_TABLE_DIFERENCIA}"
+        job = bq_client.load_table_from_dataframe(
+            df_bq,
+            table_id_diferencia,
+            job_config=job_config
+        )
+        
+        job.result()
+        print(f"✅ {job.output_rows} filas cargadas a BigQuery")
+        
+    except Exception as e:
+        print(f"❌ Error cargando: {e}")
+        import traceback
+        traceback.print_exc()
+
+def verificar_duplicados_diferencia_colombia(bq_client, ids_a_verificar: List[str]) -> set:
+    """
+    Verificar qué IDs ya existen en BigQuery para evitar duplicados
+    Procesa en lotes para evitar queries muy largas
+    
+    Args:
+        bq_client: Cliente de BigQuery
+        ids_a_verificar: Lista de IDs a verificar
+    
+    Returns:
+        set: Conjunto de IDs que ya existen en BigQuery
+    """
+    if not ids_a_verificar:
+        return set()
+    
+    try:
+        table_id_diferencia = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_DIFERENCIA_COP}"
+        ids_existentes = set()
+        batch_size = 1000  # Procesar en lotes de 1000 IDs
+        
+        print(f"🔍 Verificando {len(ids_a_verificar)} IDs en BigQuery (en lotes de {batch_size})...")
+        
+        # Procesar en lotes
+        for i in range(0, len(ids_a_verificar), batch_size):
+            batch = ids_a_verificar[i:i + batch_size]
+            
+            # Escapar IDs para SQL (usar comillas simples y escapar comillas internas)
+            ids_escaped = [f"'{id_val.replace(chr(39), chr(39)+chr(39))}'" for id_val in batch]
+            ids_list = ",".join(ids_escaped)
+            
+            query = f"""
+            SELECT DISTINCT col_capex_diferencia_id
+            FROM `{table_id_diferencia}`
+            WHERE col_capex_diferencia_id IN ({ids_list})
+            """
+            
+            query_job = bq_client.query(query)
+            resultados = query_job.result()
+            
+            batch_existentes = {row.col_capex_diferencia_id for row in resultados}
+            ids_existentes.update(batch_existentes)
+            
+            print(f"   Lote {i//batch_size + 1}: {len(batch_existentes)} duplicados encontrados")
+        
+        print(f"   ✅ Total: {len(ids_existentes)} IDs duplicados encontrados")
+        print(f"   ✅ Total: {len(ids_a_verificar) - len(ids_existentes)} IDs nuevos para cargar")
+        
+        return ids_existentes
+        
+    except Exception as e:
+        print(f"⚠️ Error verificando duplicados: {e}")
+        print(f"   → Continuando sin verificación de duplicados")
+        import traceback
+        traceback.print_exc()
+        return set()
+
+
+def cargar_diferencia_a_bigquery_colombia(bq_client, df_tabla2: pd.DataFrame, anio_fiscal: str = None):
+    """
+    Cargar datos de diferencia a BigQuery (sin columna Diferencia)
+    Respetando particiones y clustering
+    """
+    from google.cloud import bigquery
+    from datetime import datetime
+    
+    print(f"\n📤 Cargando datos a BigQuery (col_capex_pago_diferencia)...")
+    
+    if df_tabla2.empty:
+        print(f"⚠️ DataFrame vacío - abortando")
+        return
+    
+    # Calcular año fiscal si no se proporciona
+    if not anio_fiscal:
+        hoy = datetime.now()
+        if hoy.month >= 8:
+            anio_inicio = hoy.year
+            anio_fin = hoy.year + 1
+        else:
+            anio_inicio = hoy.year - 1
+            anio_fin = hoy.year
+        anio_fiscal = f"{anio_inicio}-{anio_fin}"
+    
+    # Preparar datos para BigQuery (sin columna Diferencia)
+    # Obtener nombres de columnas dinámicamente del DataFrame
+    columnas_df = list(df_tabla2.columns)
+    
+    # Identificar columnas por su prefijo (son dinámicas según el mes)
+    col_remanente = [col for col in columnas_df if col.startswith('Remanente')]
+    col_presupuesto = [col for col in columnas_df if col.startswith('Presupuesto')]
+    col_ejecutado = [col for col in columnas_df if col.startswith('Ejecutado')]
+    
+    # Validar que existan las columnas necesarias
+    if not col_remanente or not col_presupuesto or not col_ejecutado:
+        print(f"❌ Error: No se encontraron las columnas esperadas en df_tabla2")
+        print(f"   Columnas disponibles: {columnas_df}")
+        raise ValueError(f"Columnas requeridas no encontradas. Disponibles: {columnas_df}")
+    
+    # Obtener los nombres de las columnas (tomar el primero si hay múltiples)
+    nombre_remanente = col_remanente[0]
+    nombre_presupuesto = col_presupuesto[0]
+    nombre_ejecutado = col_ejecutado[0]
+    
+    print(f"\n📋 Columnas detectadas dinámicamente:")
+    print(f"   Remanente: {nombre_remanente}")
+    print(f"   Presupuesto: {nombre_presupuesto}")
+    print(f"   Ejecutado: {nombre_ejecutado}")
+    
+    # IMPORTANTE: df_tabla2 ahora tiene 'area' como columna, no como índice
+    # Verificar si 'area' está en las columnas
+    if 'area' not in df_tabla2.columns:
+        print(f"❌ Error: La columna 'area' no está en df_tabla2")
+        print(f"   Columnas disponibles: {list(df_tabla2.columns)}")
+        raise ValueError("La columna 'area' es requerida en df_tabla2")
+    
+    # Crear DataFrame con las columnas dinámicas
+    df_bq = df_tabla2[[nombre_remanente, nombre_presupuesto, nombre_ejecutado]].copy()
+    
+    # Obtener las áreas de la columna 'area', no del índice
+    areas_list = [str(area) for area in df_tabla2['area']]
+    
+    # Calcular mes actual para vzla_capex_diferencia_mes basado en el viernes de la semana pasada
+    # Formato: 'NOV-25' (mes abreviado - año de 2 dígitos)
+    # Usa la misma lógica que en utils.py (viernes de la semana pasada)
+    import datetime as dt
+    
+    # Obtener el viernes de la semana pasada (misma lógica que en utils.py)
+    hoy_date = dt.date.today()
+    dia_semana_actual = hoy_date.weekday()  # lunes=0, viernes=4, domingo=6
+    
+    # Calcular días hasta el viernes de esta semana
+    dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
+    
+    # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
+    # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
+    if dias_hasta_viernes_esta_semana == 0:
+        dias_retroceso = 7
+    else:
+        dias_retroceso = dias_hasta_viernes_esta_semana + 7
+    
+    viernes_pasado = hoy_date - dt.timedelta(days=dias_retroceso)
+    
+    # Usar el viernes pasado solo para el mes
+    df_bq['col_capex_diferencia_mes'] = viernes_pasado.strftime('%b-%y').upper()
+    
+    # La fecha de ejecución es la fecha actual (momento en que se ejecuta el proceso)
+    hoy = datetime.now()
+    
+    # Asignar tipo CAPEX según el área
+    # IMPORTANTE: Si df_tabla2 ya tiene la columna 'tipo_capex', usarla directamente
+    # Esto es crítico porque después de la unificación, todas las filas de CONSTRUCCIÓN
+    # tienen el mismo nombre pero diferentes tipos (ORDINARIO vs EXTRAORDINARIO)
+    if 'tipo_capex' in df_tabla2.columns:
+        print(f"✅ Usando columna 'tipo_capex' existente de df_tabla2")
+        print(f"   Tipos únicos: {df_tabla2['tipo_capex'].unique()}")
+        # Mostrar distribución de tipos para CONSTRUCCIÓN
+        construccion_mask = df_tabla2['area'].str.contains('CONSTRUCCION', case=False, na=False)
+        if construccion_mask.any():
+            construccion_tipos = df_tabla2[construccion_mask][['area', 'tipo_capex']]
+            print(f"   CONSTRUCCIÓN - Distribución de tipos:")
+            for idx, row in construccion_tipos.iterrows():
+                print(f"      {row['area']}: {row['tipo_capex']}")
+        # Asegurarse de que el orden coincida con las filas de df_bq
+        df_bq['col_capex_diferencia_tipo'] = df_tabla2['tipo_capex'].values
+    else:
+        print(f"⚠️  Columna 'tipo_capex' no encontrada, calculando basándose en nombre del área")
+        print(f"   ⚠️  ADVERTENCIA: Esto puede causar que todas las filas de CONSTRUCCIÓN se clasifiquen como EXTRAORDINARIO")
+        # CAPEX EXTRAORDINARIO para "DIR CONSTRUCCIÓN Y PROYECTOS" (con acento en la O)
+        # CAPEX ORDINARIO para todas las demás áreas
+        def asignar_tipo_capex(area):
+            if pd.isna(area):
+                return 'CAPEX ORDINARIO'
+            area_str = str(area).strip()
+            # Verificar específicamente que tenga "CONSTRUCCIÓN" con acento en la O
+            # Buscar "DIR CONSTRUCCIÓN" (con acento) y "PROYECTOS"
+            if 'DIR CONSTRUCCIÓN' in area_str and 'PROYECTOS' in area_str:
+                return 'CAPEX EXTRAORDINARIO'
+            # Si tiene "CONSTRUCCION" sin acento, es ORDINARIO
+            return 'CAPEX ORDINARIO'
+        
+        # Aplicar la función a cada área para asignar el tipo CAPEX
+        df_bq['col_capex_diferencia_tipo'] = [asignar_tipo_capex(area) for area in areas_list]
+    
+    # Asignar el área con el nombre correcto de BigQuery directamente desde la lista
+    df_bq['col_capex_diferencia_area'] = areas_list
+    
+    # Asegurarse de que el índice no tenga nombre que cause problemas
+    df_bq.index.name = None
+    
+    df_bq['col_capex_diferencia_remanente'] = df_bq[nombre_remanente]
+    df_bq['col_capex_diferencia_presupuesto'] = df_bq[nombre_presupuesto]
+    df_bq['col_capex_diferencia_ejecutado'] = df_bq[nombre_ejecutado]
+    df_bq['col_capex_diferencia_fecha_ejecucion'] = hoy
+    
+    # Generar IDs únicos para cada fila usando SHA256(remanente + presupuesto + ejecutado)
+    print(f"\n🔑 Generando IDs únicos para cada fila...")
+    df_bq['col_capex_diferencia_id'] = df_bq.apply(
+        lambda row: generar_id_diferencia(
+            row['col_capex_diferencia_remanente'],
+            row['col_capex_diferencia_presupuesto'],
+            row['col_capex_diferencia_ejecutado']
+        ),
+        axis=1
+    )
+    
+    # Verificar duplicados en BigQuery
+    ids_a_verificar = df_bq['col_capex_diferencia_id'].tolist()
+    ids_existentes = verificar_duplicados_diferencia_colombia(bq_client, ids_a_verificar)
+    
+    # Filtrar filas que no son duplicados
+    if ids_existentes:
+        filas_antes = len(df_bq)
+        df_bq = df_bq[~df_bq['col_capex_diferencia_id'].isin(ids_existentes)]
+        filas_despues = len(df_bq)
+        print(f"\n📊 Filtrado de duplicados:")
+        print(f"   Filas antes: {filas_antes}")
+        print(f"   Filas duplicadas eliminadas: {filas_antes - filas_despues}")
+        print(f"   Filas nuevas a cargar: {filas_despues}")
+    
+    # Si no hay filas nuevas después de filtrar duplicados, abortar
+    if df_bq.empty:
+        print(f"\n✅ No hay datos nuevos para cargar (todos son duplicados)")
+        return
+    
+    # Seleccionar solo columnas BigQuery (incluyendo el ID)
+    df_bq = df_bq[[
+        'col_capex_diferencia_id',
+        'col_capex_diferencia_mes',
+        'col_capex_diferencia_tipo',
+        'col_capex_diferencia_area',
+        'col_capex_diferencia_remanente',
+        'col_capex_diferencia_presupuesto',
+        'col_capex_diferencia_ejecutado',
+        'col_capex_diferencia_fecha_ejecucion'
+    ]]
+    
+    print(f"\n📊 Datos a cargar:")
+    print(f"   Filas: {len(df_bq)}")
+    print(f"   Columnas: {list(df_bq.columns)}")
+    print(f"   Índice nombre: {df_bq.index.name}")
+    
+    # Verificar que no haya columnas con nombres incorrectos
+    columnas_incorrectas = [col for col in df_bq.columns if col.lower() == 'area' and col != 'col_capex_diferencia_area']
+    if columnas_incorrectas:
+        print(f"⚠️  Advertencia: Se encontraron columnas con nombre 'area': {columnas_incorrectas}")
+        df_bq = df_bq.drop(columns=columnas_incorrectas)
+    
+    try:
+        # Ajustar DataFrame al schema de BigQuery antes de cargar
+        print(f"\n🔧 Ajustando DataFrame al schema de BigQuery...")
+        df_bq = ajustar_df_a_schema_bigquery_colombia(df_bq, bq_client, BIGQUERY_DATASET_COP, BIGQUERY_TABLE_DIFERENCIA_COP)
+        
+        # Verificar nuevamente las columnas después del ajuste
+        print(f"📋 Columnas después del ajuste: {list(df_bq.columns)}")
+        columnas_incorrectas_post = [col for col in df_bq.columns if col.lower() == 'area' and col != 'col_capex_diferencia_area']
+        if columnas_incorrectas_post:
+            print(f"❌ Error: Columnas incorrectas después del ajuste: {columnas_incorrectas_post}")
+            df_bq = df_bq.drop(columns=columnas_incorrectas_post)
+        
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND",  # Agregar datos
+        )
+        
+        table_id_diferencia = f"{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_DIFERENCIA_COP}"
         job = bq_client.load_table_from_dataframe(
             df_bq,
             table_id_diferencia,
@@ -992,7 +1722,7 @@ def subir_archivo_a_gcs(storage_client: storage.Client, archivo_local: str) -> D
 
 # =================== MAPEO INVERSO BQ → EXCEL ===================
 
-def mapear_bigquery_a_excel_columns(df_bq: pd.DataFrame) -> pd.DataFrame:
+def mapear_bigquery_a_excel_columns_venezuela(df_bq: pd.DataFrame) -> pd.DataFrame:
     """Convertir nombres de columnas de BigQuery a nombres de Excel"""
     
     mapeo_inverso = {
@@ -1096,7 +1826,112 @@ def mapear_bigquery_a_excel_columns(df_bq: pd.DataFrame) -> pd.DataFrame:
     
     return df_excel
 
-def ajustar_df_a_schema_bigquery(df, client, dataset_id, table_id):
+def mapear_bigquery_a_excel_columns_colombia(df_bq: pd.DataFrame) -> pd.DataFrame:
+    """Convertir nombres de columnas de BigQuery a nombres de Excel"""
+    
+    mapeo_inverso = {
+        'col_capex_pago_numero_factura': 'Numero de Factura',
+        'col_capex_pago_orden_compra': 'Numero de OC',
+        'col_capex_pago_tipo_documento': 'Tipo Factura',
+        'col_capex_pago_nombre_lote': 'Nombre Lote',
+        'col_capex_pago_proveedor': 'Proveedor',
+        'col_capex_pago_rif': 'RIF',
+        'col_capex_pago_fecha_documento': 'Fecha Documento',
+        'col_capex_pago_tienda': 'Tienda',
+        'col_capex_pago_sucursal': 'Sucursal',
+        'col_capex_pago_monto': 'Monto',
+        'col_capex_pago_moneda': 'Moneda',
+        'col_capex_pago_fecha_vencimiento': 'Fecha Vencimiento',
+        'col_capex_pago_cuenta': 'Cuenta',
+        'col_capex_pago_id_cuenta': 'Id Cta',
+        'col_capex_pago_metodo_pago': 'Método de Pago',
+        'col_capex_pago_es_independiente': 'Pago Independiente',
+        'col_capex_pago_prioridad': 'Prioridad',
+        'col_capex_pago_monto_ext': 'Monto CAPEX EXT',
+        'col_capex_pago_monto_ord': 'Monto CAPEX ORD',
+        'col_capex_pago_monto_cadm': 'Monto CADM',
+        'col_capex_pago_fecha_creacion': 'Fecha Creación',
+        'col_capex_pago_solicitante': 'Solicitante',
+        'col_capex_pago_monto_usd': 'Monto USD',
+        'col_capex_pago_categoria': 'CATEGORIA',
+        'col_capex_pago_monto_pagar_capex': 'MONTO A PAGAR CAPEX',
+        'col_capex_pago_monto_pagar_opex': 'MONTO A PAGAR OPEX',
+        'col_capex_pago_validacion': 'VALIDACION',
+        'col_capex_pago_calcu_moneda': 'METODO DE PAGO',
+        'col_capex_pago_semana_pago': 'SEMANA',
+        'col_capex_pago_mes_pago': 'MES DE PAGO',
+        'col_capex_pago_tipo_capex': 'TIPO DE CAPEX',
+        'col_capex_pago_calcu_monto_ord': 'MONTO ORD',
+        'col_capex_pago_calcu_monto_ext': 'MONTO EXT',
+        'col_capex_pago_dia_pago': 'DIA DE PAGO',
+        'col_capex_pago_calcu_tienda': 'TIENDA_LOOKUP',
+        'col_capex_pago_ceco': 'CECO',
+        'col_capex_pago_proyecto': 'PROYECTO',
+        'col_capex_pago_area': 'AREA',
+        'col_capex_pago_fecha_recibo': 'FECHA RECIBO',
+        'col_capex_pago_descripcion': 'DESCRIPCIÓN',
+        'col_capex_pago_current_fiscal_year': '_año_inicio',  # Temporal
+        'col_capex_pago_next_fiscal_year': '_año_fin'          # Temporal
+    }
+    
+    # Renombrar columnas que existen
+    columnas_renombrar = {col_bq: col_excel for col_bq, col_excel in mapeo_inverso.items() if col_bq in df_bq.columns}
+    df_excel = df_bq.rename(columns=columnas_renombrar)
+    
+    # ===================================================================
+    # COMBINAR AÑO FISCAL (current_fiscal_year + next_fiscal_year)
+    # ===================================================================
+    if '_año_inicio' in df_excel.columns and '_año_fin' in df_excel.columns:
+        print(f"🔗 Combinando años fiscales en 'AÑO FISCAL'...")
+        
+        def combinar_años(row):
+            año_inicio = row.get('_año_inicio', '')
+            año_fin = row.get('_año_fin', '')
+            
+            # Si ambos existen y son válidos
+            if pd.notna(año_inicio) and pd.notna(año_fin):
+                try:
+                    return f"{int(año_inicio)}-{int(año_fin)}"
+                except:
+                    return f"{año_inicio}-{año_fin}"
+            # Si solo hay uno, intentar calcularlo
+            elif pd.notna(año_inicio):
+                try:
+                    año_inicio_int = int(año_inicio)
+                    return f"{año_inicio_int}-{año_inicio_int + 1}"
+                except:
+                    return str(año_inicio)
+            elif pd.notna(año_fin):
+                try:
+                    año_fin_int = int(año_fin)
+                    return f"{año_fin_int - 1}-{año_fin_int}"
+                except:
+                    return str(año_fin)
+            else:
+                return "SIN_AÑO_FISCAL"
+        
+        df_excel['AÑO FISCAL'] = df_excel.apply(combinar_años, axis=1)
+        
+        # Eliminar columnas temporales
+        df_excel = df_excel.drop(columns=['_año_inicio', '_año_fin'])
+        
+        print(f"   ✅ Columna 'AÑO FISCAL' creada")
+    elif '_año_inicio' in df_excel.columns:
+        # Si solo existe current_fiscal_year, crear año fiscal con +1
+        print(f"⚠️ Solo existe 'current_fiscal_year', calculando año fiscal...")
+        df_excel['AÑO FISCAL'] = df_excel['_año_inicio'].apply(
+            lambda x: f"{int(x)}-{int(x) + 1}" if pd.notna(x) else "SIN_AÑO_FISCAL"
+        )
+        df_excel = df_excel.drop(columns=['_año_inicio'])
+    
+    # Mantener solo las columnas que están en el mapeo + AÑO FISCAL
+    columnas_finales = [col for col in df_excel.columns if col in mapeo_inverso.values() or col == 'AÑO FISCAL']
+    df_excel = df_excel[columnas_finales]
+    
+    return df_excel
+
+
+def ajustar_df_a_schema_bigquery_venezuela(df, client, dataset_id, table_id):
     """
     Convierte DataFrame a los tipos esperados por el schema de BigQuery (en vivo).
     
@@ -1212,6 +2047,122 @@ def ajustar_df_a_schema_bigquery(df, client, dataset_id, table_id):
     print("✅ DataFrame transformado según schema BigQuery", flush = True)
     return df2
 
+
+def ajustar_df_a_schema_bigquery_colombia(df, client, dataset_id, table_id):
+    """
+    Convierte DataFrame a los tipos esperados por el schema de BigQuery (en vivo).
+    
+    Args:
+        df: DataFrame a convertir
+        client: bigquery.Client conectado
+        dataset_id, table_id: nombres de dataset y tabla en BigQuery
+    
+    Returns:
+        DataFrame listo para cargar en BQ
+    """
+    # Obtén el schema BigQuery en vivo
+    tabla = client.get_table(f"{dataset_id}.{table_id}")
+    schema = {field.name: field.field_type for field in tabla.schema}
+    print("🔍 Esquema BigQuery de la tabla:")
+    for k, v in schema.items():
+        print(f" - {k}: {v}")
+
+    df2 = df.copy()
+    
+    # Verificar y eliminar columnas que no están en el schema de BigQuery
+    columnas_no_schema = [col for col in df2.columns if col not in schema]
+    if columnas_no_schema:
+        print(f"⚠️  Eliminando columnas que no están en el schema: {columnas_no_schema}", flush=True)
+        df2 = df2.drop(columns=columnas_no_schema)
+    
+    # Verificar especialmente si hay una columna "area" que no debería estar
+    if 'area' in df2.columns and 'col_capex_diferencia_area' in df2.columns:
+        print(f"⚠️  Advertencia: Se encontró columna 'area' además de 'col_capex_diferencia_area'. Eliminando 'area'.", flush=True)
+        df2 = df2.drop(columns=['area'])
+    elif 'area' in df2.columns:
+        print(f"❌ Error: Se encontró columna 'area' pero no 'col_capex_diferencia_area'. Esto no debería pasar.", flush=True)
+        df2 = df2.drop(columns=['area'])
+    
+    for col, tipo in schema.items():
+        if col not in df2.columns:
+            print(f"⚠️  Columna '{col}' no está en el DataFrame, se salta.", flush=True)
+            continue
+        
+        # Mostrar información de la columna antes de convertir
+        valores_unicos = df2[col].dropna().unique()[:5]  # Primeros 5 valores únicos
+        print(f"🔄 Convirtiendo columna '{col}' a {tipo}...", flush = True)
+        print(f"   Tipo actual: {df2[col].dtype}", flush = True)
+        print(f"   Valores de ejemplo: {valores_unicos}", flush = True)
+        
+        try:
+            # STRING
+            if tipo == "STRING":
+                df2[col] = df2[col].astype(str)
+            # INTEGER
+            elif tipo in ["INTEGER", "INT64"]:
+                # Intentar convertir a numérico primero
+                df2[col] = pd.to_numeric(df2[col], errors='coerce', downcast='integer')
+                # Verificar si hay valores no convertidos (NaN que no eran NaN originalmente)
+                valores_no_convertidos = df2[df2[col].isna() & df[col].notna()]
+                if len(valores_no_convertidos) > 0:
+                    print(f"   ⚠️  {len(valores_no_convertidos)} valores no pudieron convertirse a INTEGER", flush = True)
+                    print(f"   Valores problemáticos: {valores_no_convertidos[col].unique()[:10]}", flush = True)
+                    # Convertir a 0 o mantener como string según el caso
+                    df2[col] = df2[col].fillna(0).astype('Int64')  # Int64 permite NaN
+            # FLOAT
+            elif tipo in ["FLOAT", "FLOAT64", "NUMERIC"]:
+                df2[col] = pd.to_numeric(df2[col], errors='coerce')
+            # BOOLEAN
+            elif tipo == "BOOLEAN":
+                df2[col] = df2[col].astype('bool')
+            # DATE/TIMESTAMP/DATETIME
+            elif tipo in ["DATE", "TIMESTAMP", "DATETIME"]:
+                # Manejo especial para col_capex_diferencia_mes que viene en formato 'NOV-25'
+                if col == 'col_capex_diferencia_mes':
+                    # Convertir formato 'NOV-25' a fecha (primer día del mes)
+                    def convertir_mes_año_a_fecha(mes_anio_str):
+                        if pd.isna(mes_anio_str):
+                            return pd.NaT
+                        try:
+                            # Formato: 'NOV-25' -> convertir a fecha del primer día del mes
+                            mes_anio_str = str(mes_anio_str).strip().upper()
+                            if '-' in mes_anio_str:
+                                partes = mes_anio_str.split('-')
+                                mes_abrev = partes[0]  # 'NOV'
+                                anio_str = partes[1]   # '25'
+                                
+                                # Mapeo de meses abreviados en inglés
+                                meses_map = {
+                                    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                                    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DIC': 12,
+                                    'ENE': 1, 'FEB': 2, 'MAR': 3, 'ABR': 4, 'MAY': 5, 'JUN': 6,
+                                    'JUL': 7, 'AGO': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DIC': 12
+                                }
+                                
+                                mes_num = meses_map.get(mes_abrev)
+                                if mes_num:
+                                    # Convertir año de 2 dígitos a 4 dígitos (asumir 2000-2099)
+                                    anio = int('20' + anio_str) if len(anio_str) == 2 else int(anio_str)
+                                    return pd.Timestamp(year=anio, month=mes_num, day=1)
+                        except Exception as e:
+                            print(f"   ⚠️  Error convirtiendo '{mes_anio_str}' a fecha: {e}", flush=True)
+                        return pd.NaT
+                    
+                    df2[col] = df2[col].apply(convertir_mes_año_a_fecha)
+                    print(f"   ✅ Convertido formato 'MES-AA' a DATE (primer día del mes)", flush=True)
+                else:
+                    # Para otras columnas de fecha, usar conversión estándar
+                    df2[col] = pd.to_datetime(df2[col], errors='coerce', format='mixed')
+            # Repeated or RECORD types require special custom handling
+            else:
+                print(f"⚠️  Tipo no manejado automáticamente: {tipo} (col: {col})", flush = True)
+        except Exception as e:
+            print(f"❌ Error convirtiendo columna '{col}' a {tipo}: {e}", flush = True)
+            print(f"   Valores problemáticos: {df2[col].dropna().unique()[:10]}", flush = True)
+            raise
+    
+    print("✅ DataFrame transformado según schema BigQuery", flush = True)
+    return df2
 
 # =================== CLIENTE GOOGLE CLOUD STORAGE ===================
 
@@ -1333,7 +2284,7 @@ def upload_bosqueto():
             }), 400
         
         # NUEVO: Obtener país (opcional, default venezuela)
-        pais = request.form.get('pais', 'venezuela')
+        pais = request.form.get('pais')
         
         print(f"📁 Archivo recibido: {file.filename}")
         print(f"🌎 País: {pais.upper()}")
@@ -1390,11 +2341,41 @@ def upload_bosqueto():
             print(f"   Filas procesadas: {resultado_procesamiento.get('filas_procesadas', 0)}")
             print(f"   Tasa utilizada: {resultado_procesamiento.get('tasa_utilizada', 0)} VES/USD")
             
+        elif pais.lower() == 'colombia':
+            if not COLOMBIA_MODULE_AVAILABLE:
+                return jsonify({
+                    'success': False,
+                    'error': 'Módulo de Colombia no disponible'
+                }), 500
+            
+            # Llamar a procesar_colombia para generar el BOSQUETO
+            resultado_procesamiento, processor = procesar_colombia(temp_reporte_pago, temp_reporte_absoluto)
+            
+            if not resultado_procesamiento:
+                return jsonify({
+                    'success': False,
+                    'error': 'Error al procesar archivo de Colombia',
+                    'message': 'No se pudo generar el BOSQUETO'
+                }), 500
+
+            # Obtener ruta del BOSQUETO generado
+            archivo_bosqueto = resultado_procesamiento.get('archivo_salida')
+        
+            if not archivo_bosqueto or not os.path.exists(archivo_bosqueto):
+                return jsonify({
+                    'success': False,
+                    'error': 'BOSQUETO no fue generado correctamente'
+                }), 500
+            
+            print(f"✅ BOSQUETO generado: {archivo_bosqueto}")
+            print(f"   Filas procesadas: {resultado_procesamiento.get('filas_procesadas', 0)}")
+            print(f"   Tasa utilizada: {resultado_procesamiento.get('tasa_utilizada', 0)} COP/USD")
+            
         else:
             return jsonify({
                 'success': False,
                 'error': f'País "{pais}" no soportado actualmente',
-                'message': 'Solo Venezuela está disponible por ahora'
+                'message': 'Solo Venezuela y Colombia están disponibles'
             }), 400
         
         # PASO 2: LEER BOSQUETO GENERADO 
@@ -1447,7 +2428,10 @@ def upload_bosqueto():
 
         # PASO 2: Mapear a BigQuery
         print(f"\n🔄 PASO 2: Mapeando columnas...")
-        df_mapped = mapear_columnas_bosqueto_a_bigquery(df_bosqueto_original)
+        if pais.lower() == 'venezuela':
+            df_mapped = mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto_original)
+        elif pais.lower() == 'colombia':
+            df_mapped = mapear_columnas_bosqueto_a_bigquery_colombia(df_bosqueto_original)
         
         # PASO 3: Crear clientes
         print(f"\n🔧 PASO 3: Creando clientes GCP...")
@@ -1456,7 +2440,10 @@ def upload_bosqueto():
         
         # PASO 4: Cargar a BigQuery (con verificación de duplicados)
         print(f"\n📤 PASO 4: Cargando a BigQuery...")
-        resultado_carga = cargar_datos_a_bigquery(bq_client, df_mapped)
+        if pais.lower() == 'venezuela':
+            resultado_carga = cargar_datos_a_bigquery_venezuela(bq_client, df_mapped)
+        elif pais.lower() == 'colombia':
+            resultado_carga = cargar_datos_a_bigquery_colombia(bq_client, df_mapped)
         
         if not resultado_carga['success']:
             if 'df_cargados' in resultado_carga:
@@ -1467,9 +2454,15 @@ def upload_bosqueto():
 
         # PASO 5: Mapear registros cargados a formato Excel (DETALLE CORREGIDO)
         print(f"\n📋 PASO 5: Generando DETALLE CORREGIDO...")
-        df_bigquery = extraer_tabla_completa_por_lotes(bq_client)
+        if pais.lower() == 'venezuela':
+            df_bigquery = extraer_tabla_completa_por_lotes_venezuela(bq_client)
+        elif pais.lower() == 'colombia':
+            df_bigquery = extraer_tabla_completa_por_lotes_colombia(bq_client)
         if not df_bigquery.empty:
-            df_detalle_corregido = mapear_bigquery_a_excel_columns(df_bigquery)
+            if pais.lower() == 'venezuela':
+                df_detalle_corregido = mapear_bigquery_a_excel_columns_venezuela(df_bigquery)
+            elif pais.lower() == 'colombia':
+                df_detalle_corregido = mapear_bigquery_a_excel_columns_colombia(df_bigquery)
             print(f"✅ DETALLE CORREGIDO: {len(df_detalle_corregido)} filas extraídas de BigQuery.")
         else:
             df_detalle_corregido = pd.DataFrame()
@@ -1478,10 +2471,16 @@ def upload_bosqueto():
 
         # PASO 6: Agregar hoja DETALLE CORREGIDO al BOSQUETO existente
         print(f"\n📝 PASO 6: Agregando hoja...")
-        agregar_hoja_detalle_al_excel(archivo_bosqueto, df_detalle_corregido)
+        if pais.lower() == 'venezuela':
+            agregar_hoja_detalle_venezuela(archivo_bosqueto, df_detalle_corregido)
+        elif pais.lower() == 'colombia':
+            agregar_hoja_detalle_colombia(archivo_bosqueto, df_detalle_corregido)
 
         print(f"\n📊 PASO 6.5: Creando hoja CAPEX PAGADO POR RECIBO...")
-        crear_hoja_capex_pagado_por_recibo(archivo_bosqueto, df_detalle_corregido)
+        if pais.lower() == 'venezuela':
+            crear_hoja_capex_venezuela(archivo_bosqueto, df_detalle_corregido)
+        elif pais.lower() == 'colombia':
+            crear_hoja_capex_colombia(archivo_bosqueto, df_detalle_corregido)
 
         print(f"\n📊 PASO 6.6: Extrayendo datos de Responsables...")
         df_responsables = extraer_responsables_capex(bq_client)
@@ -1489,26 +2488,41 @@ def upload_bosqueto():
         if not df_responsables.empty:
             # PASO 6.7: Crear hoja Presupuesto Mensual
             print(f"\n💰 PASO 6.7: Creando hoja Presupuesto Mensual...")
-            crear_hoja_presupuesto_mensual(archivo_bosqueto, df_responsables)
+            if pais.lower() == 'venezuela':
+                crear_hoja_presupuesto_venezuela(archivo_bosqueto, df_responsables)
+            elif pais.lower() == 'colombia':
+                crear_hoja_presupuesto_colombia(archivo_bosqueto, df_responsables)
         else:
             print(f"⚠️ No se pudo crear Presupuesto Mensual (sin datos de responsables)")
         
         
         # PASO 6.8: Extraer diferencias de BigQuery
         print(f"\n📊 PASO 6.8: Extrayendo datos de diferencias...")
-        df_diferencia = extraer_diferencia_capex(bq_client)
+        if pais.lower() == 'venezuela':
+            df_diferencia = extraer_diferencia_capex_venezuela(bq_client)
+        elif pais.lower() == 'colombia':
+            df_diferencia = extraer_diferencia_capex_colombia(bq_client)
 
         # PASO 6.9: Extraer tabla 2 de CAPEX PAGADO POR RECIBO
         print(f"\n📊 PASO 6.9: Extrayendo tabla 2 de CAPEX PAGADO POR RECIBO...")
-        df_ejecutado = extraer_tabla2_capex_pagado_recibo(archivo_bosqueto)
+        if pais.lower() == 'venezuela':
+            df_ejecutado = extraer_tabla2_venezuela(archivo_bosqueto)
+        elif pais.lower() == 'colombia':
+            df_ejecutado = extraer_tabla2_colombia(archivo_bosqueto)
 
         # PASO 6.10: Crear tabla 2 en Presupuesto Mensual
         print(f"\n📊 PASO 6.10: Creando tabla 2 (Presupuesto vs Ejecutado)...")
-        df_tabla2 = crear_tabla2_presupuesto_mensual(archivo_bosqueto, df_diferencia, df_ejecutado)
+        if pais.lower() == 'venezuela':
+            df_tabla2 = crear_tabla2_venezuela(archivo_bosqueto, df_diferencia, df_ejecutado)
+        elif pais.lower() == 'colombia':
+            df_tabla2 = crear_tabla2_colombia(archivo_bosqueto, df_diferencia, df_ejecutado)
 
         # PASO 6.11: Cargar a BigQuery
         print(f"\n📤 PASO 6.11: Cargando diferencias a BigQuery...")
-        cargar_diferencia_a_bigquery(bq_client, df_tabla2)
+        if pais.lower() == 'venezuela':
+            cargar_diferencia_a_bigquery_venezuela(bq_client, df_tabla2)
+        elif pais.lower() == 'colombia':
+            cargar_diferencia_a_bigquery_colombia(bq_client, df_tabla2)
 
 
         # PASO 6: Generar Excel con ambas hojas (USANDO ROUTER)

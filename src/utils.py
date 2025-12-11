@@ -140,6 +140,121 @@ class APIHelper:
         fecha_respaldo = hoy
         print(f"📊 Usando tasa de respaldo fija: {tasa_respaldo} VES/USD")
         return tasa_respaldo, fecha_respaldo
+    
+    def obtener_tasa_colombia_fecha_historica(self, fecha):
+        """Obtener tasa histórica de Colombia usando la API de TRM"""
+        try:
+            fecha_str = fecha.strftime('%Y-%m-%d')
+            print(f"🇨🇴 Consultando tasa TRM histórica para {fecha_str}...")
+            
+            # API: https://trm-colombia.vercel.app/?date=YYYY-MM-DD
+            url = f"https://trm-colombia.vercel.app/?date={fecha_str}"
+            response = requests.get(url, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'data' in data and 'value' in data['data']:
+                    tasa = float(data['data']['value'])
+                    fecha_confirmada = data['data'].get('validityFrom', fecha_str)
+                    # Extraer solo la fecha de la cadena ISO (YYYY-MM-DD)
+                    if 'T' in fecha_confirmada:
+                        fecha_confirmada = fecha_confirmada.split('T')[0]
+                    print(f"✅ Tasa TRM histórica {fecha_confirmada}: {tasa:.2f} COP/USD")
+                    fecha_obj = datetime.datetime.strptime(fecha_confirmada, '%Y-%m-%d').date()
+                    return tasa, fecha_obj
+            else:
+                print(f"⚠️ HTTP {response.status_code} para fecha {fecha_str}")
+                    
+        except Exception as e:
+            print(f"⚠️ Error consultando tasa histórica para {fecha}: {e}")
+        
+        return None, fecha
+    
+    def obtener_tasa_colombia_actual(self):
+        """Obtener tasa actual de Colombia usando la API de TRM"""
+        try:
+            print("🇨🇴 Consultando tasa TRM actual...")
+            hoy = datetime.date.today()
+            fecha_str = hoy.strftime('%Y-%m-%d')
+            
+            # API: https://trm-colombia.vercel.app/?date=YYYY-MM-DD
+            url = f"https://trm-colombia.vercel.app/?date={fecha_str}"
+            response = requests.get(url, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'data' in data and 'value' in data['data']:
+                    tasa = float(data['data']['value'])
+                    fecha_confirmada = data['data'].get('validityFrom', fecha_str)
+                    # Extraer solo la fecha de la cadena ISO (YYYY-MM-DD)
+                    if 'T' in fecha_confirmada:
+                        fecha_confirmada = fecha_confirmada.split('T')[0]
+                    fecha_obj = datetime.datetime.strptime(fecha_confirmada, '%Y-%m-%d').date()
+                    print(f"✅ Tasa TRM actual: {tasa:.2f} COP/USD (fecha: {fecha_confirmada})")
+                    return tasa, fecha_obj
+                    
+        except Exception as e:
+            print(f"⚠️ Error consultando tasa actual: {e}")
+        
+        return None, None
+    
+    def obtener_tasa_colombia(self):
+        """Obtener tasa del viernes de la semana pasada usando API con histórico"""
+        print("📅 OBTENIENDO TASA DEL VIERNES ANTERIOR CON API HISTÓRICA (COLOMBIA)...")
+        print("-" * 60)
+        
+        # 1. Calcular fecha del viernes anterior
+        fecha_viernes = self.obtener_fecha_viernes_anterior()
+        hoy = datetime.date.today()
+        
+        print(f"📅 Fecha actual: {hoy.strftime('%A, %Y-%m-%d')}")
+        print(f"📅 Viernes objetivo: {fecha_viernes.strftime('%A, %Y-%m-%d')}")
+        print(f"📅 Días atrás: {(hoy - fecha_viernes).days}")
+        
+        # 2. Intentar obtener tasa del viernes
+        tasa, fecha_usada = self.obtener_tasa_colombia_fecha_historica(fecha_viernes)
+        if tasa:
+            return tasa, fecha_usada
+        
+        # 3. Respaldo: jueves anterior
+        print("⚠️ No hay datos del viernes, intentando jueves...")
+        fecha_jueves = fecha_viernes - datetime.timedelta(days=1)
+        tasa, fecha_usada = self.obtener_tasa_colombia_fecha_historica(fecha_jueves)
+        if tasa:
+            return tasa, fecha_usada
+        
+        # 4. Respaldo: miércoles anterior  
+        print("⚠️ No hay datos del jueves, intentando miércoles...")
+        fecha_miercoles = fecha_viernes - datetime.timedelta(days=2)
+        tasa, fecha_usada = self.obtener_tasa_colombia_fecha_historica(fecha_miercoles)
+        if tasa:
+            return tasa, fecha_usada
+        
+        # 5. Respaldo: martes anterior
+        print("⚠️ No hay datos del miércoles, intentando martes...")
+        fecha_martes = fecha_viernes - datetime.timedelta(days=3)
+        tasa, fecha_usada = self.obtener_tasa_colombia_fecha_historica(fecha_martes)
+        if tasa:
+            return tasa, fecha_usada
+        
+        # 6. Respaldo: lunes anterior
+        print("⚠️ No hay datos del martes, intentando lunes...")
+        fecha_lunes = fecha_viernes - datetime.timedelta(days=4)
+        tasa, fecha_usada = self.obtener_tasa_colombia_fecha_historica(fecha_lunes)
+        if tasa:
+            return tasa, fecha_usada
+        
+        # 7. Último recurso: tasa actual
+        print("⚠️ Usando tasa actual como último recurso...")
+        tasa, fecha_usada = self.obtener_tasa_colombia_actual()
+        if tasa:
+            return tasa, fecha_usada
+        
+        # 8. Tasa de respaldo fija (última opción)
+        tasa_respaldo = 4000.0  # Tasa aproximada de respaldo para COP/USD
+        fecha_respaldo = hoy
+        print(f"📊 Usando tasa de respaldo fija: {tasa_respaldo} COP/USD")
+        return tasa_respaldo, fecha_respaldo
 
 
 class ExcelProcessor:
@@ -1310,6 +1425,140 @@ def validar_monedas_venezuela(df):
     print(f"📍 Usando columna: '{col_moneda}'")
     
     monedas_validas = ['VES', 'USD', 'EUR', 'VEF']
+    monedas_archivo = df[col_moneda].dropna().unique()
+    monedas_invalidas = set(monedas_archivo) - set(monedas_validas)
+    
+    if monedas_invalidas:
+        print(f"⚠️ Monedas no estándar encontradas: {monedas_invalidas}")
+    
+    print(f"💰 Monedas en el archivo: {list(monedas_archivo)}")
+    
+    conteo_monedas = df[col_moneda].value_counts()
+    print("📊 Distribución de monedas:")
+    for moneda, cantidad in conteo_monedas.items():
+        print(f"   {moneda}: {cantidad} registros")
+    
+    return True
+
+
+def validar_columnas_colombia(df):
+    """Validar estructura específica de Venezuela con DEBUG mejorado"""
+    print("\n🔍 Validando estructura de Venezuela...")
+    print("-" * 40)
+    
+    # ELIMINAR columna "Banco" si existe (no la necesitamos y desbarata el mapeo)
+    if 'Banco' in df.columns:
+        print(f"⚠️  Columna 'Banco' detectada. Eliminándola antes de la validación...")
+        df = df.drop(columns=['Banco'])
+        print(f"✅ Columna 'Banco' eliminada")
+    
+    columnas_esperadas = [
+        "Numero de Factura", "Numero de OC", "Tipo Factura", "Nombre Lote",
+        "Proveedor", "RIF", "Fecha Documento", "Tienda", "Sucursal",
+        "Monto", "Moneda", "Fecha Vencimiento", "Cuenta", "Id Cta",
+        "Método de Pago", "Pago Independiente", "Prioridad",
+        "Monto CAPEX EXT", "Monto CAPEX ORD", "Monto CADM",
+        "Fecha Creación", "Solicitante", "Proveedor Remito"
+    ]
+    
+    columnas_archivo = [str(col).strip() for col in df.columns]
+    
+    print(f"📊 Columnas esperadas: {len(columnas_esperadas)}")
+    print(f"📊 Columnas en archivo: {len(columnas_archivo)}")
+    
+    # DEBUG: Comparación detallada
+    print(f"\n🔍 DEBUG - COMPARACIÓN DETALLADA:")
+    print("-" * 50)
+    print("ESPERADAS vs ARCHIVO:")
+    
+    max_len = max(len(columnas_esperadas), len(columnas_archivo))
+    for i in range(max_len):
+        esperada = columnas_esperadas[i] if i < len(columnas_esperadas) else "---"
+        archivo = columnas_archivo[i] if i < len(columnas_archivo) else "---"
+        
+        if esperada == archivo:
+            estado = "✅"
+        elif esperada == "---":
+            estado = "➕ EXTRA"  
+        elif archivo == "---":
+            estado = "❌ FALTA"
+        else:
+            estado = "🔄 DIFF"
+            
+        print(f"  {i+1:2d}. {estado} '{esperada}' vs '{archivo}'")
+    
+    # Verificar columnas críticas
+    print(f"\n🔍 VERIFICANDO COLUMNAS CRÍTICAS:")
+    print("-" * 40)
+    
+    columnas_criticas = ["Monto", "Moneda", "Proveedor"]
+    faltantes = []
+    encontradas = {}
+    
+    for col_critica in columnas_criticas:
+        encontrada = None
+        
+        if col_critica in columnas_archivo:
+            encontrada = col_critica
+        else:
+            for col_archivo in columnas_archivo:
+                if col_critica.lower().replace(" ", "") in col_archivo.lower().replace(" ", ""):
+                    encontrada = col_archivo
+                    break
+        
+        if encontrada:
+            encontradas[col_critica] = encontrada
+            pos = columnas_archivo.index(encontrada) + 1
+            letra = chr(64 + pos)
+            print(f"  ✅ {col_critica} → '{encontrada}' (pos {pos}, col {letra})")
+        else:
+            faltantes.append(col_critica)
+            print(f"  ❌ {col_critica} → NO ENCONTRADA")
+    
+    if faltantes:
+        print(f"\n❌ Columnas críticas faltantes: {faltantes}")
+        return False
+    
+    # Verificar posiciones clave
+    try:
+        col_monto = encontradas.get("Monto", "Monto")
+        col_moneda = encontradas.get("Moneda", "Moneda") 
+        col_proveedor = encontradas.get("Proveedor", "Proveedor")
+        
+        pos_monto = columnas_archivo.index(col_monto) + 1
+        pos_moneda = columnas_archivo.index(col_moneda) + 1
+        pos_proveedor = columnas_archivo.index(col_proveedor) + 1
+        
+        print(f"\n📍 POSICIONES CONFIRMADAS:")
+        print(f"  Monto: columna {pos_monto} ({chr(64 + pos_monto)})")
+        print(f"  Moneda: columna {pos_moneda} ({chr(64 + pos_moneda)})")  
+        print(f"  Proveedor: columna {pos_proveedor} ({chr(64 + pos_proveedor)})")
+        
+    except ValueError as e:
+        print(f"❌ Error ubicando columnas: {e}")
+        return False
+    
+    print(f"\n✅ Validación de estructura EXITOSA")
+    return True
+
+def validar_monedas_colombia(df):
+    """Validar monedas específicas de Venezuela con DEBUG"""
+    print(f"\n💰 VALIDANDO MONEDAS...")
+    print("-" * 30)
+    
+    col_moneda = None
+    for col in df.columns:
+        if "moneda" in str(col).lower():
+            col_moneda = col
+            break
+    
+    if not col_moneda:
+        print("⚠️ Columna de moneda no encontrada")
+        return True
+    
+    print(f"📍 Usando columna: '{col_moneda}'")
+    
+    monedas_validas = ['COP', 'USD', 'EUR']
     monedas_archivo = df[col_moneda].dropna().unique()
     monedas_invalidas = set(monedas_archivo) - set(monedas_validas)
     
