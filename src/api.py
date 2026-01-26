@@ -12,6 +12,7 @@ import pandas as pd
 import hashlib
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, List
 import traceback
 import tempfile
@@ -612,18 +613,14 @@ def cargar_datos_a_bigquery_venezuela(client: bigquery.Client, df: pd.DataFrame)
 
     try:
         df_nuevos = ajustar_df_a_schema_bigquery_venezuela(df_nuevos, client, BIGQUERY_DATASET, BIGQUERY_TABLE)
-        # Justo antes de cargar a BigQuery, añade:
-        print("🧾 Tipos de columnas a cargar en BigQuery:")
-        for col in df_nuevos.columns:
-            tipo = df_nuevos[col].dtype
-            muestra = df_nuevos[col].iloc[:3].tolist()
-            print(f" - {col}: {tipo} | ejemplo: {muestra}")
-
+        
+        print(f"⏳ Iniciando carga a BigQuery ({len(df_nuevos)} filas)...", flush=True)
         job = client.load_table_from_dataframe(df_nuevos, table_id, job_config=job_config)
-        job.result()
+        print(f"⏳ Job creado, esperando resultado (timeout: 300s)...", flush=True)
+        job.result(timeout=300)  # Timeout de 5 minutos
 
-        print(f"✅ Carga completada exitosamente")
-        print(f"   📊 Filas cargadas: {len(df_nuevos)}")
+        print(f"✅ Carga completada exitosamente", flush=True)
+        print(f"   📊 Filas cargadas: {len(df_nuevos)}", flush=True)
 
         result['message'] = f'Carga exitosa: {len(df_nuevos)} registros nuevos, {registros_duplicados} duplicados omitidos'
         result['df_cargados'] = df_nuevos
@@ -631,6 +628,7 @@ def cargar_datos_a_bigquery_venezuela(client: bigquery.Client, df: pd.DataFrame)
 
     except Exception as e:
         print(f"❌ Error cargando datos: {e}")
+        traceback.print_exc()
         result['success'] = False
         result['error'] = str(e)
         result['message'] = f'Error en carga: {str(e)}'
@@ -677,18 +675,14 @@ def cargar_datos_a_bigquery_colombia(client: bigquery.Client, df: pd.DataFrame) 
 
     try:
         df_nuevos = ajustar_df_a_schema_bigquery_colombia(df_nuevos, client, BIGQUERY_DATASET_COP, BIGQUERY_TABLE_COP)
-        # Justo antes de cargar a BigQuery, añade:
-        print("🧾 Tipos de columnas a cargar en BigQuery:")
-        for col in df_nuevos.columns:
-            tipo = df_nuevos[col].dtype
-            muestra = df_nuevos[col].iloc[:3].tolist()
-            print(f" - {col}: {tipo} | ejemplo: {muestra}")
-
+        
+        print(f"⏳ Iniciando carga a BigQuery ({len(df_nuevos)} filas)...", flush=True)
         job = client.load_table_from_dataframe(df_nuevos, table_id, job_config=job_config)
-        job.result()
+        print(f"⏳ Job creado, esperando resultado (timeout: 300s)...", flush=True)
+        job.result(timeout=300)  # Timeout de 5 minutos
 
-        print(f"✅ Carga completada exitosamente")
-        print(f"   📊 Filas cargadas: {len(df_nuevos)}")
+        print(f"✅ Carga completada exitosamente", flush=True)
+        print(f"   📊 Filas cargadas: {len(df_nuevos)}", flush=True)
 
         result['message'] = f'Carga exitosa: {len(df_nuevos)} registros nuevos, {registros_duplicados} duplicados omitidos'
         result['df_cargados'] = df_nuevos
@@ -696,6 +690,7 @@ def cargar_datos_a_bigquery_colombia(client: bigquery.Client, df: pd.DataFrame) 
 
     except Exception as e:
         print(f"❌ Error cargando datos: {e}")
+        traceback.print_exc()
         result['success'] = False
         result['error'] = str(e)
         result['message'] = f'Error en carga: {str(e)}'
@@ -2567,6 +2562,313 @@ def subir_archivo_a_gcs_tmp(storage_client: storage.Client, archivo_local: str, 
     except Exception as e:
         print(f"❌ Error subiendo archivo a GCS tmp: {e}")
         raise
+
+
+def subir_archivo_a_gcs_logs(storage_client: storage.Client, archivo_local: str, pais: str) -> tuple:
+    """
+    Subir archivo a Google Cloud Storage en carpeta logs/{fecha_caracas}/
+    Returns: (url_publica, nombre_blob)
+    """
+    try:
+        # Obtener fecha actual en zona horaria de Caracas
+        tz_caracas = ZoneInfo('America/Caracas')
+        fecha_caracas = datetime.now(tz_caracas)
+        fecha_str = fecha_caracas.strftime('%Y-%m-%d')
+        timestamp = fecha_caracas.strftime('%Y-%m-%d_%H-%M-%S')
+        
+        nombre_blob = f"logs/{fecha_str}/Consolidado_{pais.upper()}_{timestamp}.xlsx"
+        
+        print(f"📤 Subiendo archivo a GCS (logs): {nombre_blob}")
+        print(f"   📅 Fecha Caracas: {fecha_caracas.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(nombre_blob)
+        
+        # Subir archivo
+        blob.upload_from_filename(archivo_local, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        
+        # Hacer el blob público
+        try:
+            blob.make_public()
+            print(f"   ✓ Archivo configurado como público")
+        except Exception as public_error:
+            print(f"   ⚠️ No se pudo hacer el archivo público: {str(public_error)}")
+        
+        # Usar URL pública del blob
+        url_publica = blob.public_url
+        if not url_publica or 'storage.googleapis.com' not in url_publica:
+            url_publica = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{nombre_blob}"
+        
+        print(f"✅ Archivo subido exitosamente a logs/{fecha_str}/")
+        print(f"   URL pública: {url_publica}")
+        
+        return url_publica, nombre_blob
+        
+    except Exception as e:
+        print(f"❌ Error subiendo archivo a GCS logs: {e}")
+        raise
+
+
+def descargar_plantilla_gcs(storage_client: storage.Client, pais: str) -> str:
+    """
+    Descargar plantilla desde GCS según el país.
+    Returns: Ruta del archivo local descargado
+    """
+    try:
+        # Mapeo de país a ruta de plantilla
+        plantillas = {
+            'venezuela': 'template/vzla/consolidado_capex_ve_2025_2026_template.xlsx',
+            'colombia': 'template/col/consolidado_capex_col_2025_2026_template.xlsx',  # Ajustar según nombre real
+        }
+        
+        ruta_plantilla = plantillas.get(pais.lower())
+        if not ruta_plantilla:
+            raise ValueError(f"No hay plantilla configurada para el país: {pais}")
+        
+        print(f"📥 Descargando plantilla: {ruta_plantilla}")
+        
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(ruta_plantilla)
+        
+        # Crear archivo temporal
+        temp_file = f"/tmp/plantilla_{pais}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        blob.download_to_filename(temp_file)
+        
+        print(f"✅ Plantilla descargada: {temp_file}")
+        return temp_file
+        
+    except Exception as e:
+        print(f"❌ Error descargando plantilla: {e}")
+        raise
+
+
+def pegar_datos_en_plantilla(archivo_plantilla: str, df_bosqueto: pd.DataFrame, df_detalle: pd.DataFrame) -> str:
+    """
+    Pegar datos de BOSQUETO y DETALLE en las hojas correspondientes de la plantilla.
+    Returns: Ruta del archivo con los datos pegados
+    """
+    from openpyxl import load_workbook
+    from openpyxl.styles import PatternFill
+    
+    try:
+        print(f"📝 Pegando datos en plantilla...")
+        
+        wb = load_workbook(archivo_plantilla)
+        
+        # Pegar BOSQUETO
+        if 'BOSQUETO' in wb.sheetnames:
+            ws_bosqueto = wb['BOSQUETO']
+            # Limpiar datos existentes (excepto headers si los hay)
+            for row in ws_bosqueto.iter_rows(min_row=2, max_row=ws_bosqueto.max_row):
+                for cell in row:
+                    cell.value = None
+            
+            # Escribir headers
+            for col_idx, header in enumerate(df_bosqueto.columns, 1):
+                ws_bosqueto.cell(row=1, column=col_idx, value=header)
+            
+            # Escribir datos
+            for row_idx, row in enumerate(df_bosqueto.itertuples(index=False), 2):
+                for col_idx, value in enumerate(row, 1):
+                    # Limpiar valores NaN
+                    if pd.isna(value):
+                        value = ""
+                    ws_bosqueto.cell(row=row_idx, column=col_idx, value=value)
+            
+            print(f"   ✅ Hoja 'BOSQUETO' actualizada: {len(df_bosqueto)} filas")
+        else:
+            print(f"   ⚠️ Hoja 'BOSQUETO' no encontrada en plantilla")
+        
+        # Pegar DETALLE CORREGIDO
+        if 'DETALLE CORREGIDO' in wb.sheetnames:
+            ws_detalle = wb['DETALLE CORREGIDO']
+            # Limpiar datos existentes (excepto headers si los hay)
+            for row in ws_detalle.iter_rows(min_row=2, max_row=ws_detalle.max_row):
+                for cell in row:
+                    cell.value = None
+            
+            # Escribir headers
+            for col_idx, header in enumerate(df_detalle.columns, 1):
+                cell = ws_detalle.cell(row=1, column=col_idx, value=header)
+                cell.fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+            
+            # Escribir datos
+            for row_idx, row in enumerate(df_detalle.itertuples(index=False), 2):
+                for col_idx, value in enumerate(row, 1):
+                    # Limpiar valores NaN
+                    if pd.isna(value):
+                        value = ""
+                    ws_detalle.cell(row=row_idx, column=col_idx, value=value)
+            
+            print(f"   ✅ Hoja 'DETALLE CORREGIDO' actualizada: {len(df_detalle)} filas")
+        else:
+            print(f"   ⚠️ Hoja 'DETALLE CORREGIDO' no encontrada en plantilla")
+        
+        # Guardar
+        wb.save(archivo_plantilla)
+        print(f"✅ Plantilla actualizada guardada")
+        
+        return archivo_plantilla
+        
+    except Exception as e:
+        print(f"❌ Error pegando datos en plantilla: {e}")
+        raise
+
+
+@app.route('/api/v1/procesar-detalle', methods=['POST'])
+def procesar_detalle():
+    """
+    Endpoint para procesar DETALLE.
+    Recibe el BOSQUETO (modificado por el usuario), carga a BigQuery,
+    extrae DETALLE de BQ, y pega ambos en la plantilla.
+    """
+    try:
+        # Validar archivo
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No se proporcionó archivo BOSQUETO'
+            }), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '' or not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({
+                'success': False,
+                'error': 'Archivo inválido'
+            }), 400
+        
+        # Obtener país (obligatorio)
+        pais = request.form.get('pais', 'venezuela')
+        
+        print(f"\n{'='*70}")
+        print(f"🚀 PROCESAR DETALLE - {pais.upper()}")
+        print(f"{'='*70}")
+        print(f"📁 Archivo BOSQUETO recibido: {file.filename}")
+
+        # Guardar archivo temporalmente
+        temp_bosqueto = f"/tmp/bosqueto_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        file.save(temp_bosqueto)
+        
+        # PASO 1: Leer BOSQUETO
+        print(f"\n{'='*70}")
+        print(f"📖 PASO 1: LEYENDO BOSQUETO")
+        print(f"{'='*70}")
+        
+        df_bosqueto = pd.read_excel(temp_bosqueto, sheet_name='BOSQUETO')
+        print(f"✅ BOSQUETO leído: {len(df_bosqueto)} filas, {len(df_bosqueto.columns)} columnas")
+        
+        # PASO 2: Mapear columnas para BigQuery
+        print(f"\n🔄 PASO 2: Mapeando columnas para BigQuery...")
+        if pais.lower() == 'venezuela':
+            df_mapped = mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto)
+        elif pais.lower() == 'colombia':
+            df_mapped = mapear_columnas_bosqueto_a_bigquery_colombia(df_bosqueto)
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'País "{pais}" no soportado'
+            }), 400
+        
+        print(f"✅ Columnas mapeadas: {len(df_mapped.columns)} columnas")
+        
+        # PASO 3: Crear clientes GCP
+        print(f"\n🔧 PASO 3: Creando clientes GCP...")
+        bq_client = crear_cliente_bigquery()
+        storage_client = crear_cliente_storage()
+        
+        # PASO 4: Cargar a BigQuery (con verificación de duplicados)
+        print(f"\n📤 PASO 4: Cargando a BigQuery...")
+        if pais.lower() == 'venezuela':
+            resultado_carga = cargar_datos_a_bigquery_venezuela(bq_client, df_mapped)
+        elif pais.lower() == 'colombia':
+            resultado_carga = cargar_datos_a_bigquery_colombia(bq_client, df_mapped)
+        
+        if not resultado_carga['success']:
+            if 'df_cargados' in resultado_carga:
+                resultado_carga.pop('df_cargados')
+            return jsonify(resultado_carga), 500
+        
+        print(f"✅ BigQuery: {resultado_carga['rows_loaded']} cargados, {resultado_carga['rows_duplicated']} duplicados")
+        
+        # PASO 5: Extraer DETALLE CORREGIDO de BigQuery
+        print(f"\n📋 PASO 5: Extrayendo DETALLE CORREGIDO de BigQuery...")
+        if pais.lower() == 'venezuela':
+            df_bigquery = extraer_tabla_completa_por_lotes_venezuela(bq_client)
+        elif pais.lower() == 'colombia':
+            df_bigquery = extraer_tabla_completa_por_lotes_colombia(bq_client)
+        
+        if not df_bigquery.empty:
+            if pais.lower() == 'venezuela':
+                df_detalle_corregido = mapear_bigquery_a_excel_columns_venezuela(df_bigquery)
+            elif pais.lower() == 'colombia':
+                df_detalle_corregido = mapear_bigquery_a_excel_columns_colombia(df_bigquery)
+            print(f"✅ DETALLE CORREGIDO: {len(df_detalle_corregido)} filas extraídas de BigQuery")
+        else:
+            df_detalle_corregido = pd.DataFrame()
+            print(f"⚠️ DETALLE CORREGIDO vacío (sin registros en BigQuery)")
+        
+        # PASO 6: Descargar plantilla
+        print(f"\n📥 PASO 6: Descargando plantilla...")
+        archivo_plantilla = descargar_plantilla_gcs(storage_client, pais)
+        
+        # PASO 7: Pegar datos en plantilla
+        print(f"\n📝 PASO 7: Pegando datos en plantilla...")
+        archivo_final = pegar_datos_en_plantilla(archivo_plantilla, df_bosqueto, df_detalle_corregido)
+        
+        # PASO 8: Subir a GCS (carpeta logs/{fecha_caracas}/)
+        print(f"\n☁️ PASO 8: Subiendo a Google Cloud Storage (logs)...")
+        url_descarga, nombre_archivo_gcs = subir_archivo_a_gcs_logs(storage_client, archivo_final, pais)
+        
+        # Limpiar archivos temporales
+        print(f"\n🧹 Limpiando archivos temporales...")
+        archivos_temp = [temp_bosqueto, archivo_plantilla]
+        
+        for archivo in archivos_temp:
+            try:
+                if archivo and os.path.exists(archivo):
+                    os.remove(archivo)
+                    print(f"   ✅ Eliminado: {os.path.basename(archivo)}")
+            except Exception as e:
+                print(f"   ⚠️ No se pudo eliminar {archivo}: {e}")
+        
+        # Respuesta final
+        respuesta = {
+            'success': True,
+            'pais': pais.upper(),
+            'total_rows': resultado_carga['total_rows'],
+            'rows_duplicated': resultado_carga['rows_duplicated'],
+            'rows_loaded': resultado_carga['rows_loaded'],
+            'detalle_rows': len(df_detalle_corregido),
+            'consolidado_url': url_descarga,
+            'file_name': nombre_archivo_gcs,
+            'timestamp': datetime.now().isoformat(),
+            'message': f"Proceso completado: {resultado_carga['rows_loaded']} registros cargados a BQ, {len(df_detalle_corregido)} filas en DETALLE"
+        }
+        
+        print(f"\n✅ PROCESO DETALLE COMPLETADO")
+        print(f"   País: {pais.upper()}")
+        print(f"   URL de descarga: {url_descarga}")
+        
+        return jsonify(respuesta), 200
+        
+    except Exception as e:
+        print(f"❌ Error en proceso DETALLE: {e}")
+        traceback.print_exc()
+
+        try:
+            if 'temp_bosqueto' in locals() and os.path.exists(temp_bosqueto):
+                os.remove(temp_bosqueto)
+            if 'archivo_plantilla' in locals() and os.path.exists(archivo_plantilla):
+                os.remove(archivo_plantilla)
+        except:
+            pass
+        
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Error procesando DETALLE: {str(e)}'
+        }), 500
 
 
 @app.route('/api/v1/procesar-bosqueto', methods=['POST'])

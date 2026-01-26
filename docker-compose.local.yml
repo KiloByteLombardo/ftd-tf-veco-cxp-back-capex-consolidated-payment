@@ -21,10 +21,5 @@ services:
     environment:
       # Forzar uso del archivo de credenciales en desarrollo local
       - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+
 
