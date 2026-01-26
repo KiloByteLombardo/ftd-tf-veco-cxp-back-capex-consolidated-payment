@@ -2500,6 +2500,283 @@ def health_check():
     })
 
 
+def limpiar_carpeta_tmp_gcs(storage_client: storage.Client) -> int:
+    """
+    Eliminar todos los archivos de la carpeta tmp/ en GCS.
+    Returns: Cantidad de archivos eliminados
+    """
+    try:
+        print(f"🗑️ Limpiando carpeta tmp/ en GCS...")
+        
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blobs = bucket.list_blobs(prefix='tmp/')
+        
+        count = 0
+        for blob in blobs:
+            blob.delete()
+            print(f"   ✅ Eliminado: {blob.name}")
+            count += 1
+        
+        if count == 0:
+            print(f"   ℹ️ Carpeta tmp/ ya estaba vacía")
+        else:
+            print(f"✅ {count} archivo(s) eliminado(s) de tmp/")
+        
+        return count
+        
+    except Exception as e:
+        print(f"⚠️ Error limpiando carpeta tmp/: {e}")
+        return 0
+
+
+def subir_archivo_a_gcs_tmp(storage_client: storage.Client, archivo_local: str, pais: str) -> tuple:
+    """
+    Subir archivo a Google Cloud Storage en carpeta tmp/
+    Returns: (url_publica, nombre_blob)
+    """
+    try:
+        # Generar nombre con timestamp
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        nombre_blob = f"tmp/Bosqueto_{pais.upper()}_{timestamp}.xlsx"
+        
+        print(f"📤 Subiendo archivo a GCS (tmp): {nombre_blob}")
+        
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(nombre_blob)
+        
+        # Subir archivo
+        blob.upload_from_filename(archivo_local, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        
+        # Hacer el blob público para que sea accesible sin autenticación
+        try:
+            blob.make_public()
+            print(f"   ✓ Archivo configurado como público")
+        except Exception as public_error:
+            print(f"   ⚠️ No se pudo hacer el archivo público: {str(public_error)}")
+        
+        # Usar URL pública del blob
+        url_publica = blob.public_url
+        if not url_publica or 'storage.googleapis.com' not in url_publica:
+            url_publica = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{nombre_blob}"
+        
+        print(f"✅ Archivo subido exitosamente a tmp/")
+        print(f"   URL pública: {url_publica}")
+        
+        return url_publica, nombre_blob
+        
+    except Exception as e:
+        print(f"❌ Error subiendo archivo a GCS tmp: {e}")
+        raise
+
+
+@app.route('/api/v1/procesar-bosqueto', methods=['POST'])
+def procesar_bosqueto():
+    """
+    Endpoint para procesar SOLO el BOSQUETO.
+    Recibe los archivos, genera la hoja BOSQUETO, sube a GCS/tmp y retorna el Excel.
+    NO carga datos a BigQuery.
+    """
+    try:
+        # Validar archivo
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No se proporcionó archivo'
+            }), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '' or not file.filename.endswith(('.xlsx', '.xls')):
+            return jsonify({
+                'success': False,
+                'error': 'Archivo inválido'
+            }), 400
+        
+        # Obtener país (opcional, default venezuela)
+        pais = request.form.get('pais', 'venezuela')
+        
+        print(f"\n{'='*70}")
+        print(f"🚀 PROCESAR BOSQUETO - {pais.upper()}")
+        print(f"{'='*70}")
+        print(f"📁 Archivo recibido: {file.filename}")
+
+        # PASO 0: Limpiar carpeta tmp/ en GCS
+        storage_client = crear_cliente_storage()
+        limpiar_carpeta_tmp_gcs(storage_client)
+
+        # Guardar archivo principal temporalmente
+        temp_reporte_pago = f"/tmp/reporte_pago_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        file.save(temp_reporte_pago)
+        
+        # Verificar si hay Reporte Absoluto (opcional)
+        temp_reporte_absoluto = None
+        if 'reporte_absoluto' in request.files:
+            reporte_absoluto_file = request.files['reporte_absoluto']
+            if reporte_absoluto_file.filename != '':
+                temp_reporte_absoluto = f"/tmp/reporte_absoluto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                reporte_absoluto_file.save(temp_reporte_absoluto)
+                print(f"📋 Reporte Absoluto recibido: {reporte_absoluto_file.filename}")
+        else:
+            print(f"ℹ️ No se proporcionó Reporte Absoluto")
+
+        # PASO 1: PROCESAR Y GENERAR BOSQUETO 
+        print(f"\n{'='*70}")
+        print(f"🔄 PASO 1: PROCESANDO ARCHIVO Y GENERANDO BOSQUETO")
+        print(f"{'='*70}")
+        
+        if pais.lower() == 'venezuela':
+            if not VENEZUELA_MODULE_AVAILABLE:
+                return jsonify({
+                    'success': False,
+                    'error': 'Módulo de Venezuela no disponible'
+                }), 500
+            
+            resultado_procesamiento, processor = procesar_venezuela(temp_reporte_pago, temp_reporte_absoluto)
+            
+            if not resultado_procesamiento:
+                return jsonify({
+                    'success': False,
+                    'error': 'Error al procesar archivo de Venezuela',
+                    'message': 'No se pudo generar el BOSQUETO'
+                }), 500
+
+            archivo_bosqueto = resultado_procesamiento.get('archivo_salida')
+        
+            if not archivo_bosqueto or not os.path.exists(archivo_bosqueto):
+                return jsonify({
+                    'success': False,
+                    'error': 'BOSQUETO no fue generado correctamente'
+                }), 500
+            
+            print(f"✅ BOSQUETO generado: {archivo_bosqueto}")
+            print(f"   Filas procesadas: {resultado_procesamiento.get('filas_procesadas', 0)}")
+            print(f"   Tasa utilizada: {resultado_procesamiento.get('tasa_utilizada', 0)} VES/USD")
+            
+        elif pais.lower() == 'colombia':
+            if not COLOMBIA_MODULE_AVAILABLE:
+                return jsonify({
+                    'success': False,
+                    'error': 'Módulo de Colombia no disponible'
+                }), 500
+            
+            resultado_procesamiento, processor = procesar_colombia(temp_reporte_pago, temp_reporte_absoluto)
+            
+            if not resultado_procesamiento:
+                return jsonify({
+                    'success': False,
+                    'error': 'Error al procesar archivo de Colombia',
+                    'message': 'No se pudo generar el BOSQUETO'
+                }), 500
+
+            archivo_bosqueto = resultado_procesamiento.get('archivo_salida')
+        
+            if not archivo_bosqueto or not os.path.exists(archivo_bosqueto):
+                return jsonify({
+                    'success': False,
+                    'error': 'BOSQUETO no fue generado correctamente'
+                }), 500
+            
+            print(f"✅ BOSQUETO generado: {archivo_bosqueto}")
+            print(f"   Filas procesadas: {resultado_procesamiento.get('filas_procesadas', 0)}")
+            print(f"   Tasa utilizada: {resultado_procesamiento.get('tasa_utilizada', 0)} COP/USD")
+            
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'País "{pais}" no soportado actualmente',
+                'message': 'Solo Venezuela y Colombia están disponibles'
+            }), 400
+        
+        # PASO 2: LEER BOSQUETO Y APLICAR CÁLCULOS 
+        print(f"\n{'='*70}")
+        print(f"📖 PASO 2: LEYENDO BOSQUETO Y APLICANDO CÁLCULOS")
+        print(f"{'='*70}")
+        
+        df_bosqueto_original = pd.read_excel(archivo_bosqueto, sheet_name='BOSQUETO')
+        print(f"✅ BOSQUETO leído: {len(df_bosqueto_original)} filas, {len(df_bosqueto_original.columns)} columnas")
+
+        # Limpiar NaN → 0 en columnas numéricas
+        columnas_numericas = ['Monto CAPEX EXT', 'Monto CAPEX ORD', 'Monto CADM', 'Monto', 'Pago Independiente']
+        for col in columnas_numericas:
+            if col in df_bosqueto_original.columns:
+                df_bosqueto_original[col] = df_bosqueto_original[col].fillna(0)
+
+        # Aplicar cálculos
+        df_bosqueto_original = processor.calcular_monto_usd(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_monto_capex(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_monto_opex(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_categoria(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_validacion(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_metodo_pago(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_tipo_capex(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_monto_ord(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_monto_ext(df_bosqueto_original)
+        df_bosqueto_original = processor.calcular_dia_pago(df_bosqueto_original)
+        df_bosqueto_original['SEMANA'] = processor.obtener_semana_actual()
+        df_bosqueto_original['MES DE PAGO'] = processor.obtener_mes_actual()
+        
+        # PASO 3: Guardar BOSQUETO procesado (sobrescribe el archivo)
+        print(f"\n💾 PASO 3: Guardando BOSQUETO procesado...")
+        
+        with pd.ExcelWriter(archivo_bosqueto, engine='openpyxl', mode='w') as writer:
+            df_bosqueto_original.to_excel(writer, sheet_name='BOSQUETO', index=False)
+        
+        print(f"✅ BOSQUETO procesado guardado: {len(df_bosqueto_original)} filas")
+        
+        # PASO 4: Subir a GCS (carpeta tmp)
+        print(f"\n☁️ PASO 4: Subiendo a Google Cloud Storage (tmp/)...")
+        url_descarga, nombre_archivo_gcs = subir_archivo_a_gcs_tmp(storage_client, archivo_bosqueto, pais)
+        
+        # Limpiar archivos temporales
+        print(f"\n🧹 Limpiando archivos temporales...")
+        archivos_temp = [temp_reporte_pago, temp_reporte_absoluto, archivo_bosqueto]
+    
+        for archivo in archivos_temp:
+            try:
+                if archivo and os.path.exists(archivo):
+                    os.remove(archivo)
+                    print(f"   ✅ Eliminado: {os.path.basename(archivo)}")
+            except Exception as e:
+                print(f"   ⚠️ No se pudo eliminar {archivo}: {e}")
+       
+        # Respuesta final
+        respuesta = {
+            'success': True,
+            'pais': pais.upper(),
+            'filas_procesadas': resultado_procesamiento.get('filas_procesadas', 0),
+            'tasa_utilizada': resultado_procesamiento.get('tasa_utilizada', 0),
+            'bosqueto_url': url_descarga,
+            'file_name': nombre_archivo_gcs,
+            'timestamp': datetime.now().isoformat(),
+            'message': f"BOSQUETO procesado exitosamente: {resultado_procesamiento.get('filas_procesadas', 0)} filas"
+        }
+        
+        print(f"\n✅ PROCESO BOSQUETO COMPLETADO")
+        print(f"   País: {pais.upper()}")
+        print(f"   URL de descarga: {url_descarga}")
+        
+        return jsonify(respuesta), 200
+        
+    except Exception as e:
+        print(f"❌ Error en proceso BOSQUETO: {e}")
+        traceback.print_exc()
+
+        try:
+            if 'temp_reporte_pago' in locals() and os.path.exists(temp_reporte_pago):
+                os.remove(temp_reporte_pago)
+            if 'temp_reporte_absoluto' in locals() and temp_reporte_absoluto and os.path.exists(temp_reporte_absoluto):
+                os.remove(temp_reporte_absoluto)
+            if 'archivo_bosqueto' in locals() and os.path.exists(archivo_bosqueto):
+                os.remove(archivo_bosqueto)
+        except:
+            pass
+        
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Error procesando BOSQUETO: {str(e)}'
+        }), 500
+
 
 @app.route('/api/v1/upload-bosqueto', methods=['POST'])
 def upload_bosqueto():
