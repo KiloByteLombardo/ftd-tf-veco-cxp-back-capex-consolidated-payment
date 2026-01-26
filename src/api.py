@@ -705,17 +705,19 @@ def extraer_tabla_completa_por_lotes_venezuela(client: bigquery.Client) -> pd.Da
     """
     table_id = f"`{GCP_PROJECT_ID}.{BIGQUERY_DATASET}.{BIGQUERY_TABLE}`"
     
-    print(f"📊 Extrayendo datos de BigQuery por lotes...")
+    print(f"📊 Extrayendo datos de BigQuery por lotes...", flush=True)
     
     # Primero, contar cuántas filas hay
+    print(f"   Contando filas...", flush=True)
     count_query = f"SELECT COUNT(*) as total FROM {table_id}"
-    count_result = client.query(count_query).result()
+    count_job = client.query(count_query)
+    count_result = count_job.result(timeout=120)  # Timeout 2 min
     total_rows = list(count_result)[0].total
     
-    print(f"   Total de filas en la tabla: {total_rows}")
+    print(f"   Total de filas en la tabla: {total_rows}", flush=True)
     
     if total_rows == 0:
-        print("⚠️ La tabla está vacía")
+        print("⚠️ La tabla está vacía", flush=True)
         return pd.DataFrame()
     
     # Extraer por lotes usando LIMIT y OFFSET
@@ -723,7 +725,7 @@ def extraer_tabla_completa_por_lotes_venezuela(client: bigquery.Client) -> pd.Da
     offset = 0
     
     while offset < total_rows:
-        print(f"   Extrayendo lote: filas {offset} a {offset + BATCH_SIZE}")
+        print(f"   Extrayendo lote: filas {offset} a {offset + BATCH_SIZE}...", flush=True)
         
         query = f"""
         SELECT *
@@ -734,14 +736,16 @@ def extraer_tabla_completa_por_lotes_venezuela(client: bigquery.Client) -> pd.Da
         """
         
         try:
-            df_batch = client.query(query).to_dataframe()
+            query_job = client.query(query)
+            df_batch = query_job.result(timeout=300).to_dataframe()  # Timeout 5 min por lote
             all_dataframes.append(df_batch)
             offset += BATCH_SIZE
             
-            print(f"   ✅ Lote extraído: {len(df_batch)} filas")
+            print(f"   ✅ Lote extraído: {len(df_batch)} filas", flush=True)
             
         except Exception as e:
-            print(f"   ❌ Error extrayendo lote: {e}")
+            print(f"   ❌ Error extrayendo lote: {e}", flush=True)
+            traceback.print_exc()
             break
     
     if not all_dataframes:
@@ -749,7 +753,7 @@ def extraer_tabla_completa_por_lotes_venezuela(client: bigquery.Client) -> pd.Da
     
     # Combinar todos los lotes
     df_completo = pd.concat(all_dataframes, ignore_index=True)
-    print(f"✅ Extracción completa: {len(df_completo)} filas")
+    print(f"✅ Extracción completa: {len(df_completo)} filas", flush=True)
     
     return df_completo
 
@@ -760,17 +764,19 @@ def extraer_tabla_completa_por_lotes_colombia(client: bigquery.Client) -> pd.Dat
     """
     table_id = f"`{GCP_PROJECT_ID}.{BIGQUERY_DATASET_COP}.{BIGQUERY_TABLE_COP}`"
     
-    print(f"📊 Extrayendo datos de BigQuery por lotes...")
+    print(f"📊 Extrayendo datos de BigQuery por lotes...", flush=True)
     
     # Primero, contar cuántas filas hay
+    print(f"   Contando filas...", flush=True)
     count_query = f"SELECT COUNT(*) as total FROM {table_id}"
-    count_result = client.query(count_query).result()
+    count_job = client.query(count_query)
+    count_result = count_job.result(timeout=120)  # Timeout 2 min
     total_rows = list(count_result)[0].total
     
-    print(f"   Total de filas en la tabla: {total_rows}")
+    print(f"   Total de filas en la tabla: {total_rows}", flush=True)
     
     if total_rows == 0:
-        print("⚠️ La tabla está vacía")
+        print("⚠️ La tabla está vacía", flush=True)
         return pd.DataFrame()
     
     # Extraer por lotes usando LIMIT y OFFSET
@@ -778,7 +784,7 @@ def extraer_tabla_completa_por_lotes_colombia(client: bigquery.Client) -> pd.Dat
     offset = 0
     
     while offset < total_rows:
-        print(f"   Extrayendo lote: filas {offset} a {offset + BATCH_SIZE}")
+        print(f"   Extrayendo lote: filas {offset} a {offset + BATCH_SIZE}...", flush=True)
         
         query = f"""
         SELECT *
@@ -789,14 +795,16 @@ def extraer_tabla_completa_por_lotes_colombia(client: bigquery.Client) -> pd.Dat
         """
         
         try:
-            df_batch = client.query(query).to_dataframe()
+            query_job = client.query(query)
+            df_batch = query_job.result(timeout=300).to_dataframe()  # Timeout 5 min por lote
             all_dataframes.append(df_batch)
             offset += BATCH_SIZE
             
-            print(f"   ✅ Lote extraído: {len(df_batch)} filas")
+            print(f"   ✅ Lote extraído: {len(df_batch)} filas", flush=True)
             
         except Exception as e:
-            print(f"   ❌ Error extrayendo lote: {e}")
+            print(f"   ❌ Error extrayendo lote: {e}", flush=True)
+            traceback.print_exc()
             break
     
     if not all_dataframes:
@@ -804,7 +812,7 @@ def extraer_tabla_completa_por_lotes_colombia(client: bigquery.Client) -> pd.Dat
     
     # Combinar todos los lotes
     df_completo = pd.concat(all_dataframes, ignore_index=True)
-    print(f"✅ Extracción completa: {len(df_completo)} filas")
+    print(f"✅ Extracción completa: {len(df_completo)} filas", flush=True)
     
     return df_completo
 
@@ -2645,73 +2653,64 @@ def descargar_plantilla_gcs(storage_client: storage.Client, pais: str) -> str:
 def pegar_datos_en_plantilla(archivo_plantilla: str, df_bosqueto: pd.DataFrame, df_detalle: pd.DataFrame) -> str:
     """
     Pegar datos de BOSQUETO y DETALLE en las hojas correspondientes de la plantilla.
+    La plantilla ya tiene los headers, solo se pegan los datos desde la fila 2.
     Returns: Ruta del archivo con los datos pegados
     """
     from openpyxl import load_workbook
-    from openpyxl.styles import PatternFill
     
     try:
-        print(f"📝 Pegando datos en plantilla...")
-        
+        print(f"📝 Cargando plantilla Excel...", flush=True)
         wb = load_workbook(archivo_plantilla)
+        print(f"   ✅ Plantilla cargada", flush=True)
         
-        # Pegar BOSQUETO
+        # Función auxiliar para verificar si un valor está vacío
+        def es_valor_vacio(val):
+            if pd.isna(val):
+                return True
+            if isinstance(val, str) and val.lower() in ('nan', 'none', 'null', ''):
+                return True
+            return False
+        
+        # Pegar BOSQUETO (datos empiezan en fila 2, headers ya están en la plantilla)
+        print(f"   📋 Pegando datos en BOSQUETO ({len(df_bosqueto)} filas)...", flush=True)
         if 'BOSQUETO' in wb.sheetnames:
             ws_bosqueto = wb['BOSQUETO']
-            # Limpiar datos existentes (excepto headers si los hay)
-            for row in ws_bosqueto.iter_rows(min_row=2, max_row=ws_bosqueto.max_row):
-                for cell in row:
-                    cell.value = None
             
-            # Escribir headers
-            for col_idx, header in enumerate(df_bosqueto.columns, 1):
-                ws_bosqueto.cell(row=1, column=col_idx, value=header)
-            
-            # Escribir datos
             for row_idx, row in enumerate(df_bosqueto.itertuples(index=False), 2):
                 for col_idx, value in enumerate(row, 1):
-                    # Limpiar valores NaN
-                    if pd.isna(value):
-                        value = ""
-                    ws_bosqueto.cell(row=row_idx, column=col_idx, value=value)
+                    # Solo escribir si tiene valor real (no NaN, no "nan", no vacío)
+                    if not es_valor_vacio(value):
+                        ws_bosqueto.cell(row=row_idx, column=col_idx, value=value)
             
-            print(f"   ✅ Hoja 'BOSQUETO' actualizada: {len(df_bosqueto)} filas")
+            print(f"   ✅ BOSQUETO: {len(df_bosqueto)} filas pegadas", flush=True)
         else:
-            print(f"   ⚠️ Hoja 'BOSQUETO' no encontrada en plantilla")
+            print(f"   ⚠️ Hoja 'BOSQUETO' no encontrada", flush=True)
         
-        # Pegar DETALLE CORREGIDO
-        if 'DETALLE CORREGIDO' in wb.sheetnames:
-            ws_detalle = wb['DETALLE CORREGIDO']
-            # Limpiar datos existentes (excepto headers si los hay)
-            for row in ws_detalle.iter_rows(min_row=2, max_row=ws_detalle.max_row):
-                for cell in row:
-                    cell.value = None
+        # Pegar DETALLE CORREGIDO (datos empiezan en fila 2, headers ya están en la plantilla)
+        print(f"   📋 Pegando datos en Detalle Corregido ({len(df_detalle)} filas)...", flush=True)
+        if 'Detalle Corregido' in wb.sheetnames:
+            ws_detalle = wb['Detalle Corregido']
             
-            # Escribir headers
-            for col_idx, header in enumerate(df_detalle.columns, 1):
-                cell = ws_detalle.cell(row=1, column=col_idx, value=header)
-                cell.fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
-            
-            # Escribir datos
             for row_idx, row in enumerate(df_detalle.itertuples(index=False), 2):
                 for col_idx, value in enumerate(row, 1):
-                    # Limpiar valores NaN
-                    if pd.isna(value):
-                        value = ""
-                    ws_detalle.cell(row=row_idx, column=col_idx, value=value)
+                    # Solo escribir si tiene valor real (no NaN, no "nan", no vacío)
+                    if not es_valor_vacio(value):
+                        ws_detalle.cell(row=row_idx, column=col_idx, value=value)
             
-            print(f"   ✅ Hoja 'DETALLE CORREGIDO' actualizada: {len(df_detalle)} filas")
+            print(f"   ✅ Detalle Corregido: {len(df_detalle)} filas pegadas", flush=True)
         else:
-            print(f"   ⚠️ Hoja 'DETALLE CORREGIDO' no encontrada en plantilla")
+            print(f"   ⚠️ Hoja 'Detalle Corregido' no encontrada", flush=True)
         
         # Guardar
+        print(f"   💾 Guardando archivo...", flush=True)
         wb.save(archivo_plantilla)
-        print(f"✅ Plantilla actualizada guardada")
+        print(f"✅ Plantilla guardada", flush=True)
         
         return archivo_plantilla
         
     except Exception as e:
-        print(f"❌ Error pegando datos en plantilla: {e}")
+        print(f"❌ Error pegando datos en plantilla: {e}", flush=True)
+        traceback.print_exc()
         raise
 
 
@@ -2723,6 +2722,10 @@ def procesar_detalle():
     extrae DETALLE de BQ, y pega ambos en la plantilla.
     """
     try:
+        print(f"\n{'='*70}", flush=True)
+        print(f"🚀 INICIANDO PROCESAR DETALLE", flush=True)
+        print(f"{'='*70}", flush=True)
+        
         # Validar archivo
         if 'file' not in request.files:
             return jsonify({
@@ -2741,25 +2744,46 @@ def procesar_detalle():
         # Obtener país (obligatorio)
         pais = request.form.get('pais', 'venezuela')
         
-        print(f"\n{'='*70}")
-        print(f"🚀 PROCESAR DETALLE - {pais.upper()}")
-        print(f"{'='*70}")
-        print(f"📁 Archivo BOSQUETO recibido: {file.filename}")
+        print(f"🌎 País: {pais.upper()}", flush=True)
+        print(f"📁 Archivo BOSQUETO recibido: {file.filename}", flush=True)
+
+        # PASO 0: Limpiar carpetas tmp (local y GCS)
+        print(f"\n🗑️ PASO 0: Limpiando carpetas tmp...", flush=True)
+        
+        # Limpiar /tmp local
+        print(f"   🧹 Limpiando /tmp local...", flush=True)
+        try:
+            import glob
+            archivos_tmp = glob.glob('/tmp/*.xlsx') + glob.glob('/tmp/plantilla_*.xlsx') + glob.glob('/tmp/bosqueto_*.xlsx') + glob.glob('/tmp/reporte_*.xlsx')
+            for archivo in archivos_tmp:
+                try:
+                    os.remove(archivo)
+                    print(f"      ✅ Eliminado: {os.path.basename(archivo)}", flush=True)
+                except Exception as e:
+                    print(f"      ⚠️ No se pudo eliminar {archivo}: {e}", flush=True)
+            if not archivos_tmp:
+                print(f"      ℹ️ Carpeta /tmp local ya estaba limpia", flush=True)
+        except Exception as e:
+            print(f"      ⚠️ Error limpiando /tmp local: {e}", flush=True)
+        
+        # Limpiar tmp/ en GCS
+        print(f"   🧹 Limpiando tmp/ en GCS...", flush=True)
+        storage_client = crear_cliente_storage()
+        limpiar_carpeta_tmp_gcs(storage_client)
+        print(f"✅ PASO 0 COMPLETADO: Carpetas tmp limpiadas", flush=True)
 
         # Guardar archivo temporalmente
         temp_bosqueto = f"/tmp/bosqueto_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         file.save(temp_bosqueto)
+        print(f"💾 Archivo guardado temporalmente: {temp_bosqueto}", flush=True)
         
         # PASO 1: Leer BOSQUETO
-        print(f"\n{'='*70}")
-        print(f"📖 PASO 1: LEYENDO BOSQUETO")
-        print(f"{'='*70}")
-        
+        print(f"\n📖 PASO 1: LEYENDO BOSQUETO...", flush=True)
         df_bosqueto = pd.read_excel(temp_bosqueto, sheet_name='BOSQUETO')
-        print(f"✅ BOSQUETO leído: {len(df_bosqueto)} filas, {len(df_bosqueto.columns)} columnas")
+        print(f"✅ PASO 1 COMPLETADO: {len(df_bosqueto)} filas, {len(df_bosqueto.columns)} columnas", flush=True)
         
         # PASO 2: Mapear columnas para BigQuery
-        print(f"\n🔄 PASO 2: Mapeando columnas para BigQuery...")
+        print(f"\n🔄 PASO 2: Mapeando columnas para BigQuery...", flush=True)
         if pais.lower() == 'venezuela':
             df_mapped = mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto)
         elif pais.lower() == 'colombia':
@@ -2769,68 +2793,75 @@ def procesar_detalle():
                 'success': False,
                 'error': f'País "{pais}" no soportado'
             }), 400
-        
-        print(f"✅ Columnas mapeadas: {len(df_mapped.columns)} columnas")
+        print(f"✅ PASO 2 COMPLETADO: {len(df_mapped.columns)} columnas mapeadas", flush=True)
         
         # PASO 3: Crear clientes GCP
-        print(f"\n🔧 PASO 3: Creando clientes GCP...")
+        # PASO 3: Crear cliente BigQuery (Storage ya creado en PASO 0)
+        print(f"\n🔧 PASO 3: Creando cliente BigQuery...", flush=True)
         bq_client = crear_cliente_bigquery()
-        storage_client = crear_cliente_storage()
+        print(f"✅ PASO 3 COMPLETADO: Cliente BigQuery creado", flush=True)
         
         # PASO 4: Cargar a BigQuery (con verificación de duplicados)
-        print(f"\n📤 PASO 4: Cargando a BigQuery...")
+        print(f"\n📤 PASO 4: Cargando a BigQuery...", flush=True)
         if pais.lower() == 'venezuela':
             resultado_carga = cargar_datos_a_bigquery_venezuela(bq_client, df_mapped)
         elif pais.lower() == 'colombia':
             resultado_carga = cargar_datos_a_bigquery_colombia(bq_client, df_mapped)
         
         if not resultado_carga['success']:
+            print(f"❌ PASO 4 FALLÓ: {resultado_carga.get('error', 'Error desconocido')}", flush=True)
             if 'df_cargados' in resultado_carga:
                 resultado_carga.pop('df_cargados')
             return jsonify(resultado_carga), 500
         
-        print(f"✅ BigQuery: {resultado_carga['rows_loaded']} cargados, {resultado_carga['rows_duplicated']} duplicados")
+        print(f"✅ PASO 4 COMPLETADO: {resultado_carga['rows_loaded']} cargados, {resultado_carga['rows_duplicated']} duplicados", flush=True)
         
         # PASO 5: Extraer DETALLE CORREGIDO de BigQuery
-        print(f"\n📋 PASO 5: Extrayendo DETALLE CORREGIDO de BigQuery...")
+        print(f"\n📋 PASO 5: Extrayendo DETALLE CORREGIDO de BigQuery...", flush=True)
         if pais.lower() == 'venezuela':
             df_bigquery = extraer_tabla_completa_por_lotes_venezuela(bq_client)
         elif pais.lower() == 'colombia':
             df_bigquery = extraer_tabla_completa_por_lotes_colombia(bq_client)
         
+        print(f"   📊 Datos extraídos de BQ: {len(df_bigquery)} filas", flush=True)
+        
         if not df_bigquery.empty:
+            print(f"   🔄 Mapeando columnas de BQ a Excel...", flush=True)
             if pais.lower() == 'venezuela':
                 df_detalle_corregido = mapear_bigquery_a_excel_columns_venezuela(df_bigquery)
             elif pais.lower() == 'colombia':
                 df_detalle_corregido = mapear_bigquery_a_excel_columns_colombia(df_bigquery)
-            print(f"✅ DETALLE CORREGIDO: {len(df_detalle_corregido)} filas extraídas de BigQuery")
+            print(f"✅ PASO 5 COMPLETADO: {len(df_detalle_corregido)} filas en DETALLE", flush=True)
         else:
             df_detalle_corregido = pd.DataFrame()
-            print(f"⚠️ DETALLE CORREGIDO vacío (sin registros en BigQuery)")
+            print(f"⚠️ PASO 5 COMPLETADO: DETALLE vacío (sin registros en BigQuery)", flush=True)
         
         # PASO 6: Descargar plantilla
-        print(f"\n📥 PASO 6: Descargando plantilla...")
+        print(f"\n📥 PASO 6: Descargando plantilla de GCS...", flush=True)
         archivo_plantilla = descargar_plantilla_gcs(storage_client, pais)
+        print(f"✅ PASO 6 COMPLETADO: Plantilla descargada", flush=True)
         
         # PASO 7: Pegar datos en plantilla
-        print(f"\n📝 PASO 7: Pegando datos en plantilla...")
+        print(f"\n📝 PASO 7: Pegando datos en plantilla...", flush=True)
         archivo_final = pegar_datos_en_plantilla(archivo_plantilla, df_bosqueto, df_detalle_corregido)
+        print(f"✅ PASO 7 COMPLETADO: Datos pegados en plantilla", flush=True)
         
         # PASO 8: Subir a GCS (carpeta logs/{fecha_caracas}/)
-        print(f"\n☁️ PASO 8: Subiendo a Google Cloud Storage (logs)...")
+        print(f"\n☁️ PASO 8: Subiendo a Google Cloud Storage (logs)...", flush=True)
         url_descarga, nombre_archivo_gcs = subir_archivo_a_gcs_logs(storage_client, archivo_final, pais)
+        print(f"✅ PASO 8 COMPLETADO: Archivo subido", flush=True)
         
         # Limpiar archivos temporales
-        print(f"\n🧹 Limpiando archivos temporales...")
+        print(f"\n🧹 Limpiando archivos temporales...", flush=True)
         archivos_temp = [temp_bosqueto, archivo_plantilla]
         
         for archivo in archivos_temp:
             try:
                 if archivo and os.path.exists(archivo):
                     os.remove(archivo)
-                    print(f"   ✅ Eliminado: {os.path.basename(archivo)}")
+                    print(f"   ✅ Eliminado: {os.path.basename(archivo)}", flush=True)
             except Exception as e:
-                print(f"   ⚠️ No se pudo eliminar {archivo}: {e}")
+                print(f"   ⚠️ No se pudo eliminar {archivo}: {e}", flush=True)
         
         # Respuesta final
         respuesta = {
@@ -2846,14 +2877,16 @@ def procesar_detalle():
             'message': f"Proceso completado: {resultado_carga['rows_loaded']} registros cargados a BQ, {len(df_detalle_corregido)} filas en DETALLE"
         }
         
-        print(f"\n✅ PROCESO DETALLE COMPLETADO")
-        print(f"   País: {pais.upper()}")
-        print(f"   URL de descarga: {url_descarga}")
+        print(f"\n{'='*70}", flush=True)
+        print(f"✅ PROCESO DETALLE COMPLETADO EXITOSAMENTE", flush=True)
+        print(f"   País: {pais.upper()}", flush=True)
+        print(f"   URL: {url_descarga}", flush=True)
+        print(f"{'='*70}", flush=True)
         
         return jsonify(respuesta), 200
         
     except Exception as e:
-        print(f"❌ Error en proceso DETALLE: {e}")
+        print(f"❌ Error en proceso DETALLE: {e}", flush=True)
         traceback.print_exc()
 
         try:
