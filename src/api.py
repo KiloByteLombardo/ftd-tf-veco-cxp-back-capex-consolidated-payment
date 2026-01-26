@@ -3708,6 +3708,94 @@ def bucket_info():
             'message': f'Error obteniendo info del bucket: {str(e)}'
         }), 500
 
+
+# =================== ENDPOINT LISTAR LOGS ===================
+
+@app.route('/api/v1/logs', methods=['GET'])
+def listar_logs():
+    """
+    Listar archivos en la carpeta logs/ del bucket, agrupados por fecha.
+    Retorna links de descarga para cada archivo.
+    """
+    try:
+        print(f"📋 Listando archivos de logs...", flush=True)
+        
+        storage_client = crear_cliente_storage()
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        
+        # Listar todos los blobs en la carpeta logs/
+        blobs = bucket.list_blobs(prefix='logs/')
+        
+        # Agrupar por fecha
+        logs_por_fecha = {}
+        total_archivos = 0
+        
+        for blob in blobs:
+            # Ignorar la carpeta misma (si existe como objeto)
+            if blob.name == 'logs/' or blob.name.endswith('/'):
+                continue
+            
+            # Extraer fecha del path: logs/2026-01-26/archivo.xlsx
+            partes = blob.name.split('/')
+            if len(partes) >= 3:
+                fecha = partes[1]  # 2026-01-26
+                nombre_archivo = partes[2]  # Consolidado_VENEZUELA_2026-01-26_10-30-00.xlsx
+            else:
+                fecha = 'sin_fecha'
+                nombre_archivo = blob.name
+            
+            # Construir URL pública
+            url_publica = f"https://storage.googleapis.com/{GCS_BUCKET_NAME}/{blob.name}"
+            
+            # Crear entrada del archivo
+            archivo_info = {
+                'nombre': nombre_archivo,
+                'path': blob.name,
+                'url': url_publica,
+                'tamaño_mb': round(blob.size / (1024 * 1024), 2) if blob.size else 0,
+                'creado': blob.time_created.isoformat() if blob.time_created else None,
+                'actualizado': blob.updated.isoformat() if blob.updated else None
+            }
+            
+            # Agrupar por fecha
+            if fecha not in logs_por_fecha:
+                logs_por_fecha[fecha] = []
+            logs_por_fecha[fecha].append(archivo_info)
+            total_archivos += 1
+        
+        # Ordenar fechas de más reciente a más antigua
+        fechas_ordenadas = sorted(logs_por_fecha.keys(), reverse=True)
+        
+        # Construir respuesta ordenada
+        logs_ordenados = []
+        for fecha in fechas_ordenadas:
+            logs_ordenados.append({
+                'fecha': fecha,
+                'archivos': logs_por_fecha[fecha],
+                'total_archivos': len(logs_por_fecha[fecha])
+            })
+        
+        print(f"✅ Logs listados: {total_archivos} archivos en {len(logs_por_fecha)} fechas", flush=True)
+        
+        return jsonify({
+            'success': True,
+            'total_archivos': total_archivos,
+            'total_fechas': len(logs_por_fecha),
+            'logs': logs_ordenados,
+            'bucket': GCS_BUCKET_NAME,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error listando logs: {e}", flush=True)
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'message': f'Error listando logs: {str(e)}'
+        }), 500
+
+
 # =================== MAIN ===================
 
 if __name__ == '__main__':
