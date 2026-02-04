@@ -158,6 +158,14 @@ def mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto: pd.DataFrame) -> 
         'Monto USD': 'vzla_capex_pago_monto_usd',
         'CATEGORIA': 'vzla_capex_pago_categoria',
         'MONTO A PAGAR CAPEX': 'vzla_capex_pago_monto_pagar_capex',
+        'MONEDA DE PAGO': 'vzla_capex_pago_moneda_pago',  # NUEVA
+        'FECHA PAGO': 'vzla_capex_pago_fecha_pago',  # NUEVA
+        'TC FTD': 'vzla_capex_pago_TC_FTD',  # NUEVA
+        'TC BCV': 'vzla_capex_pago_TC_BCV',  # NUEVA
+        'CONVERSION VES': 'vzla_capex_pago_conversion_ves',  # NUEVA
+        'CONVERSION TC FTD': 'vzla_capex_pago_conversion_TC_FTD',  # NUEVA
+        'REAL CONVERTIDO': 'vzla_capex_pago_real_convertido',  # NUEVA
+        'REAL MES CONVERTIDO': 'vzla_capex_pago_real_mes_convertido',  # NUEVA
         'MONTO A PAGAR OPEX': 'vzla_capex_pago_monto_pagar_opex',
         'VALIDACION': 'vzla_capex_pago_validacion',
         'METODO DE PAGO': 'vzla_capex_pago_calcu_moneda',
@@ -223,7 +231,8 @@ def mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto: pd.DataFrame) -> 
         'vzla_capex_pago_fecha_documento',
         'vzla_capex_pago_fecha_vencimiento',
         'vzla_capex_pago_fecha_creacion',
-        'vzla_capex_pago_fecha_recibo'
+        'vzla_capex_pago_fecha_recibo',
+        'vzla_capex_pago_fecha_pago'  # NUEVA
     ]
     
     for col_fecha in columnas_fecha:
@@ -253,7 +262,13 @@ def mapear_columnas_bosqueto_a_bigquery_venezuela(df_bosqueto: pd.DataFrame) -> 
         'vzla_capex_pago_monto_pagar_capex',
         'vzla_capex_pago_monto_pagar_opex',
         'vzla_capex_pago_calcu_monto_ord',
-        'vzla_capex_pago_calcu_monto_ext'
+        'vzla_capex_pago_calcu_monto_ext',
+        'vzla_capex_pago_TC_FTD',  # NUEVA
+        'vzla_capex_pago_TC_BCV',  # NUEVA
+        'vzla_capex_pago_conversion_ves',  # NUEVA
+        'vzla_capex_pago_conversion_TC_FTD',  # NUEVA
+        'vzla_capex_pago_real_convertido',  # NUEVA
+        'vzla_capex_pago_real_mes_convertido'  # NUEVA
     ]
     
     for col_float in columnas_float:
@@ -1994,6 +2009,14 @@ def mapear_bigquery_a_excel_columns_venezuela(df_bq: pd.DataFrame) -> pd.DataFra
         'vzla_capex_pago_monto_usd': 'Monto USD',
         'vzla_capex_pago_categoria': 'CATEGORIA',
         'vzla_capex_pago_monto_pagar_capex': 'MONTO A PAGAR CAPEX',
+        'vzla_capex_pago_moneda_pago': 'MONEDA DE PAGO',  # NUEVA
+        'vzla_capex_pago_fecha_pago': 'FECHA PAGO',  # NUEVA
+        'vzla_capex_pago_TC_FTD': 'TC FTD',  # NUEVA
+        'vzla_capex_pago_TC_BCV': 'TC BCV',  # NUEVA
+        'vzla_capex_pago_conversion_ves': 'CONVERSION VES',  # NUEVA
+        'vzla_capex_pago_conversion_TC_FTD': 'CONVERSION TC FTD',  # NUEVA
+        'vzla_capex_pago_real_reconvertido': 'REAL RECONVERTIDO',  # NUEVA
+        'vzla_capex_pago_real_mes_reconvertido': 'REAL MES RECONVERTIDO',  # NUEVA
         'vzla_capex_pago_monto_pagar_opex': 'MONTO A PAGAR OPEX',
         'vzla_capex_pago_validacion': 'VALIDACION',
         'vzla_capex_pago_calcu_moneda': 'METODO DE PAGO',
@@ -2063,9 +2086,72 @@ def mapear_bigquery_a_excel_columns_venezuela(df_bq: pd.DataFrame) -> pd.DataFra
         )
         df_excel = df_excel.drop(columns=['_año_inicio'])
     
-    # Mantener solo las columnas que están en el mapeo + AÑO FISCAL
-    columnas_finales = [col for col in df_excel.columns if col in mapeo_inverso.values() or col == 'AÑO FISCAL']
+    # Orden explícito de columnas para el Excel
+    orden_columnas = [
+        'Numero de Factura',
+        'Numero de OC',
+        'Tipo Factura',
+        'Nombre Lote',
+        'Proveedor',
+        'RIF',
+        'Fecha Documento',
+        'Tienda',
+        'Sucursal',
+        'Monto',
+        'Moneda',
+        'Fecha Vencimiento',
+        'Cuenta',
+        'Id Cta',
+        'Método de Pago',
+        'Pago Independiente',
+        'Prioridad',
+        'Monto CAPEX EXT',
+        'Monto CAPEX ORD',
+        'Monto CADM',
+        'Fecha Creación',
+        'Solicitante',
+        'Monto USD',
+        'CATEGORIA',
+        'MONTO A PAGAR CAPEX',
+        # Nuevas columnas después de MONTO A PAGAR CAPEX
+        'MONEDA DE PAGO',
+        'FECHA PAGO',
+        'TC FTD',
+        'TC BCV',
+        'CONVERSION VES',
+        'CONVERSION TC FTD',
+        'REAL RECONVERTIDO',
+        'REAL MES RECONVERTIDO',
+        # Continúan las demás
+        'MONTO A PAGAR OPEX',
+        'VALIDACION',
+        'METODO DE PAGO',
+        'SEMANA',
+        'MES DE PAGO',
+        'TIPO DE CAPEX',
+        'MONTO ORD',
+        'MONTO EXT',
+        'DIA DE PAGO',
+        'TIENDA_LOOKUP',
+        'CECO',
+        'PROYECTO',
+        'AREA',
+        'FECHA RECIBO',
+        'DESCRIPCIÓN',
+        'AÑO FISCAL'
+    ]
+    
+    # Mantener solo las columnas que existen en el DataFrame, en el orden especificado
+    columnas_finales = [col for col in orden_columnas if col in df_excel.columns]
+    
+    # Agregar columnas que existen pero no están en el orden (por si acaso)
+    for col in df_excel.columns:
+        if col not in columnas_finales and col not in ['_año_inicio', '_año_fin']:
+            columnas_finales.append(col)
+    
     df_excel = df_excel[columnas_finales]
+    
+    print(f"   📋 Columnas en DETALLE: {len(columnas_finales)}", flush=True)
     
     return df_excel
 
@@ -2846,6 +2932,34 @@ def procesar_detalle():
         archivo_final = pegar_datos_en_plantilla(archivo_plantilla, df_bosqueto, df_detalle_corregido)
         print(f"✅ PASO 7 COMPLETADO: Datos pegados en plantilla", flush=True)
         
+        # PASO 7.5: Verificar si es cierre de mes (semana 1)
+        from openpyxl import load_workbook
+        
+        # Obtener fecha actual en Caracas
+        tz_caracas = ZoneInfo('America/Caracas')
+        fecha_caracas = datetime.now(tz_caracas)
+        
+        print(f"\n📅 PASO 7.5: Verificando cierre de mes...", flush=True)
+        print(f"   Fecha Caracas: {fecha_caracas.strftime('%d/%m/%Y')} (Día {fecha_caracas.day})", flush=True)
+        
+        if es_semana_1_del_mes(fecha_caracas):
+            print(f"   ✅ Es semana 1 del mes - Ejecutando cierre de mes", flush=True)
+            
+            # Cargar el archivo para modificar títulos
+            wb = load_workbook(archivo_final, keep_links=True)
+            
+            # Actualizar títulos
+            actualizar_titulos_cierre_mes(wb, fecha_caracas.month, fecha_caracas.year)
+            
+            # Traspasar Diferencia → Remanente
+            traspasar_diferencia_a_remanente(wb)
+            
+            # Guardar cambios
+            wb.save(archivo_final)
+            print(f"✅ PASO 7.5 COMPLETADO: Cierre de mes aplicado", flush=True)
+        else:
+            print(f"   ℹ️ No es semana 1 (día {fecha_caracas.day}) - Sin cierre de mes", flush=True)
+        
         # PASO 8: Subir a GCS (carpeta logs/{fecha_caracas}/)
         print(f"\n☁️ PASO 8: Subiendo a Google Cloud Storage (logs)...", flush=True)
         url_descarga, nombre_archivo_gcs = subir_archivo_a_gcs_logs(storage_client, archivo_final, pais)
@@ -2864,6 +2978,8 @@ def procesar_detalle():
                 print(f"   ⚠️ No se pudo eliminar {archivo}: {e}", flush=True)
         
         # Respuesta final
+        cierre_mes_aplicado = es_semana_1_del_mes(fecha_caracas)
+        
         respuesta = {
             'success': True,
             'pais': pais.upper(),
@@ -2873,13 +2989,20 @@ def procesar_detalle():
             'detalle_rows': len(df_detalle_corregido),
             'consolidado_url': url_descarga,
             'file_name': nombre_archivo_gcs,
+            'cierre_mes': {
+                'aplicado': cierre_mes_aplicado,
+                'fecha': fecha_caracas.strftime('%d/%m/%Y'),
+                'mes': MESES_ES[fecha_caracas.month],
+                'dia': fecha_caracas.day
+            },
             'timestamp': datetime.now().isoformat(),
-            'message': f"Proceso completado: {resultado_carga['rows_loaded']} registros cargados a BQ, {len(df_detalle_corregido)} filas en DETALLE"
+            'message': f"Proceso completado: {resultado_carga['rows_loaded']} registros cargados a BQ, {len(df_detalle_corregido)} filas en DETALLE" + (", cierre de mes aplicado" if cierre_mes_aplicado else "")
         }
         
         print(f"\n{'='*70}", flush=True)
         print(f"✅ PROCESO DETALLE COMPLETADO EXITOSAMENTE", flush=True)
         print(f"   País: {pais.upper()}", flush=True)
+        print(f"   Cierre de mes: {'Sí' if cierre_mes_aplicado else 'No'}", flush=True)
         print(f"   URL: {url_descarga}", flush=True)
         print(f"{'='*70}", flush=True)
         
@@ -3793,6 +3916,232 @@ def listar_logs():
             'success': False,
             'error': str(e),
             'message': f'Error listando logs: {str(e)}'
+        }), 500
+
+
+# =================== CIERRE DE MES ===================
+
+# Meses en español
+MESES_ES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+}
+
+
+def es_semana_1_del_mes(fecha):
+    """Verificar si la fecha está en la semana 1 del mes (días 1-7)"""
+    return 1 <= fecha.day <= 7
+
+
+def obtener_mes_anterior(mes_actual, año_actual):
+    """Obtener el mes y año anterior"""
+    if mes_actual == 1:
+        return 12, año_actual - 1
+    else:
+        return mes_actual - 1, año_actual
+
+
+def actualizar_titulos_cierre_mes(wb, mes_actual, año_actual):
+    """
+    Actualizar títulos cuando es semana 1 del nuevo mes.
+    """
+    mes_anterior, año_anterior = obtener_mes_anterior(mes_actual, año_actual)
+    
+    nombre_mes_actual = MESES_ES[mes_actual]
+    nombre_mes_anterior = MESES_ES[mes_anterior]
+    
+    print(f"📅 Cierre de mes: {nombre_mes_anterior}-{año_anterior} → {nombre_mes_actual}-{año_actual}", flush=True)
+    print(f"   📋 Hojas disponibles: {wb.sheetnames}", flush=True)
+    
+    # 1. HOJA "Graficos" - Actualizar títulos
+    # Buscar la hoja con diferentes variaciones del nombre
+    hoja_graficos = None
+    for nombre in wb.sheetnames:
+        if 'grafico' in nombre.lower() or 'gráfico' in nombre.lower():
+            hoja_graficos = nombre
+            break
+    
+    if hoja_graficos:
+        ws_graficos = wb[hoja_graficos]
+        
+        # Leer valores actuales para debug
+        print(f"   📊 Hoja '{hoja_graficos}' encontrada", flush=True)
+        print(f"      G6 actual: '{ws_graficos['G6'].value}'", flush=True)
+        print(f"      H6 actual: '{ws_graficos['H6'].value}'", flush=True)
+        print(f"      I6 actual: '{ws_graficos['I6'].value}'", flush=True)
+        
+        # Actualizar
+        ws_graficos['G6'] = f"PPTO {nombre_mes_actual}-{año_actual}"
+        ws_graficos['H6'] = f"Pagado {nombre_mes_actual}-{año_actual}"
+        ws_graficos['I6'] = f"DISPONIBLE {nombre_mes_actual}-{año_actual}"
+        
+        print(f"      G6 nuevo: '{ws_graficos['G6'].value}'", flush=True)
+        print(f"      H6 nuevo: '{ws_graficos['H6'].value}'", flush=True)
+        print(f"      I6 nuevo: '{ws_graficos['I6'].value}'", flush=True)
+        print(f"   ✅ Graficos: G6, H6, I6 actualizados", flush=True)
+    else:
+        print(f"   ⚠️ Hoja 'Graficos' no encontrada en: {wb.sheetnames}", flush=True)
+    
+    # 2. HOJA "Presupuesto Mensual" - Actualizar títulos
+    hoja_presupuesto = None
+    for nombre in wb.sheetnames:
+        if 'presupuesto' in nombre.lower():
+            hoja_presupuesto = nombre
+            break
+    
+    if hoja_presupuesto:
+        ws_presupuesto = wb[hoja_presupuesto]
+        
+        print(f"   📊 Hoja '{hoja_presupuesto}' encontrada", flush=True)
+        print(f"      C18 actual: '{ws_presupuesto['C18'].value}'", flush=True)
+        print(f"      D18 actual: '{ws_presupuesto['D18'].value}'", flush=True)
+        print(f"      E18 actual: '{ws_presupuesto['E18'].value}'", flush=True)
+        
+        ws_presupuesto['C18'] = f"Remanente {nombre_mes_anterior}-{año_anterior}"
+        ws_presupuesto['D18'] = f"Presupuesto {nombre_mes_actual}-{año_actual}"
+        ws_presupuesto['E18'] = f"Ejecutado {nombre_mes_actual}-{año_actual}"
+        
+        print(f"      C18 nuevo: '{ws_presupuesto['C18'].value}'", flush=True)
+        print(f"      D18 nuevo: '{ws_presupuesto['D18'].value}'", flush=True)
+        print(f"      E18 nuevo: '{ws_presupuesto['E18'].value}'", flush=True)
+        print(f"   ✅ Presupuesto Mensual: C18, D18, E18 actualizados", flush=True)
+    else:
+        print(f"   ⚠️ Hoja 'Presupuesto Mensual' no encontrada en: {wb.sheetnames}", flush=True)
+
+
+def traspasar_diferencia_a_remanente(wb):
+    """
+    Traspasar los valores de Diferencia a Remanente.
+    Filas: 20, 22-32 (saltando 21)
+    Fórmula Diferencia: =E-D+C → se copia a C (Remanente)
+    IMPORTANTE: Solo toca las celdas C, D, E, F de las filas especificadas
+    """
+    # Buscar la hoja
+    hoja_presupuesto = None
+    for nombre in wb.sheetnames:
+        if 'presupuesto' in nombre.lower():
+            hoja_presupuesto = nombre
+            break
+    
+    if not hoja_presupuesto:
+        print(f"   ⚠️ Hoja 'Presupuesto Mensual' no encontrada", flush=True)
+        return
+    
+    ws = wb[hoja_presupuesto]
+    filas = [20] + list(range(22, 33))  # 20, 22-32 (saltando 21)
+    
+    print(f"💰 Traspasando Diferencia → Remanente (solo celdas C de filas específicas):", flush=True)
+    
+    for fila in filas:
+        val_c = ws[f'C{fila}'].value
+        val_d = ws[f'D{fila}'].value
+        val_e = ws[f'E{fila}'].value
+        
+        # Convertir a número
+        try:
+            c = float(val_c) if val_c is not None else 0
+        except (ValueError, TypeError):
+            c = 0
+        try:
+            d = float(val_d) if val_d is not None else 0
+        except (ValueError, TypeError):
+            d = 0
+        try:
+            e = float(val_e) if val_e is not None else 0
+        except (ValueError, TypeError):
+            e = 0
+        
+        # Calcular Diferencia: E - D + C
+        diferencia = e - d + c
+        
+        # Solo escribir en Remanente (C) - NO tocar ninguna otra celda
+        ws[f'C{fila}'] = diferencia
+        print(f"   Fila {fila}: C={c:.2f}, D={d:.2f}, E={e:.2f} → Dif={diferencia:.2f}", flush=True)
+
+
+@app.route('/api/v1/test-cierre-mes', methods=['GET'])
+def test_cierre_mes():
+    """
+    Endpoint de prueba para simular cierre de mes.
+    Simula que es Semana 1 de Febrero 2026.
+    """
+    from openpyxl import load_workbook
+    
+    try:
+        print(f"\n{'='*70}", flush=True)
+        print(f"🧪 TEST: Cierre de Mes - Simulando Semana 1 Febrero 2026", flush=True)
+        print(f"{'='*70}", flush=True)
+        
+        # Simular fecha: 3 de Febrero 2026 (Semana 1)
+        fecha_simulada = datetime(2026, 2, 3)
+        mes_actual = fecha_simulada.month
+        año_actual = fecha_simulada.year
+        
+        print(f"📆 Fecha simulada: {fecha_simulada.strftime('%d/%m/%Y')}", flush=True)
+        print(f"   ¿Es semana 1?: {es_semana_1_del_mes(fecha_simulada)}", flush=True)
+        
+        # Descargar plantilla
+        print(f"\n📥 Descargando plantilla...", flush=True)
+        storage_client = crear_cliente_storage()
+        archivo_plantilla = descargar_plantilla_gcs(storage_client, 'venezuela')
+        
+        # Cargar plantilla (manteniendo imágenes, gráficos, etc.)
+        print(f"📂 Cargando plantilla...", flush=True)
+        wb = load_workbook(archivo_plantilla, keep_vba=False, data_only=False, keep_links=True)
+        print(f"   Hojas: {wb.sheetnames}", flush=True)
+        
+        # Ejecutar cierre de mes
+        print(f"\n🔄 Ejecutando cierre de mes...", flush=True)
+        actualizar_titulos_cierre_mes(wb, mes_actual, año_actual)
+        traspasar_diferencia_a_remanente(wb)
+        
+        # Guardar resultado
+        print(f"\n💾 Guardando resultado...", flush=True)
+        wb.save(archivo_plantilla)
+        
+        # Subir a GCS (carpeta tmp para revisión)
+        print(f"☁️ Subiendo a GCS (tmp)...", flush=True)
+        url_descarga, nombre_archivo = subir_archivo_a_gcs_tmp(storage_client, archivo_plantilla, 'venezuela_test_cierre')
+        
+        # Limpiar archivo local
+        if os.path.exists(archivo_plantilla):
+            os.remove(archivo_plantilla)
+        
+        print(f"\n✅ TEST COMPLETADO", flush=True)
+        print(f"   URL: {url_descarga}", flush=True)
+        
+        return jsonify({
+            'success': True,
+            'mensaje': 'Test de cierre de mes completado',
+            'fecha_simulada': fecha_simulada.strftime('%d/%m/%Y'),
+            'mes_simulado': MESES_ES[mes_actual],
+            'año_simulado': año_actual,
+            'es_semana_1': es_semana_1_del_mes(fecha_simulada),
+            'archivo_url': url_descarga,
+            'archivo_nombre': nombre_archivo,
+            'titulos_actualizados': {
+                'graficos': {
+                    'G6': f"PPTO {MESES_ES[mes_actual]}-{año_actual}",
+                    'H6': f"Pagado {MESES_ES[mes_actual]}-{año_actual}",
+                    'I6': f"DISPONIBLE {MESES_ES[mes_actual]}-{año_actual}"
+                },
+                'presupuesto_mensual': {
+                    'C18': f"Remanente {MESES_ES[obtener_mes_anterior(mes_actual, año_actual)[0]]}-{obtener_mes_anterior(mes_actual, año_actual)[1]}",
+                    'D18': f"Presupuesto {MESES_ES[mes_actual]}-{año_actual}",
+                    'E18': f"Ejecutado {MESES_ES[mes_actual]}-{año_actual}"
+                }
+            },
+            'filas_procesadas': [20] + list(range(22, 33)),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error en test cierre de mes: {e}", flush=True)
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 

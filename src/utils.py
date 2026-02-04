@@ -14,11 +14,153 @@ import os
 from typing import Optional, Dict, Any
 import numpy as np
 
+# Cargar variables de entorno desde .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Variables de entorno cargadas desde .env")
+except ImportError:
+    print("⚠️ python-dotenv no instalado, usando variables de entorno del sistema")
+
+# Importar módulo de tasas BCV desde BigQuery
+try:
+    from tasas import obtener_helper_tasas, obtener_tasa_bcv, precargar_tasas_bcv
+    print("✅ Módulo de tasas BCV importado correctamente")
+except ImportError:
+    print("⚠️ No se pudo importar módulo de tasas, usando fallback")
+    obtener_helper_tasas = None
+    obtener_tasa_bcv = None
+    precargar_tasas_bcv = None
+
 class APIHelper:
     """Helper para consultar APIs de tasas de cambio"""
     
     def __init__(self, timeout=10):
         self.timeout = timeout
+        self.tasas_ftd_cache = None  # Cache para tasas FTD
+    
+    def obtener_tasas_ftd(self):
+        """
+        Obtener todas las tasas de Farmatodo desde el endpoint TC_FTD_ENDPOINT.
+        Guarda en cache para no consultar múltiples veces.
+        
+        Returns:
+            dict: Diccionario con fecha_vigencia como clave y datos de tasa como valor
+        """
+        if self.tasas_ftd_cache is not None:
+            return self.tasas_ftd_cache
+        
+        try:
+            # Obtener endpoint desde variables de entorno
+            endpoint = os.environ.get('TC_FTD_ENDPOINT', 'https://consulta-tasas-ftd-632121084032.europe-west1.run.app/')
+            
+            print(f"💱 Consultando tasas FTD desde: {endpoint}")
+            response = requests.get(endpoint, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if 'datos' in data:
+                    # Crear diccionario indexado por fecha para búsqueda rápida
+                    tasas_dict = {}
+                    for item in data['datos']:
+                        fecha = item.get('fecha_vigencia', '')
+                        tasas_dict[fecha] = {
+                            'tasa_bcv': item.get('tasa_bcv', 0),
+                            'tasa_farmatodo': item.get('tasa_farmatodo', 0),
+                            'tasa_referencial': item.get('tasa_referencial', 0)
+                        }
+                    
+                    self.tasas_ftd_cache = tasas_dict
+                    print(f"✅ Tasas FTD cargadas: {len(tasas_dict)} fechas disponibles")
+                    
+                    # Mostrar algunas muestras
+                    if tasas_dict:
+                        fechas_sample = list(tasas_dict.keys())[:3]
+                        print(f"   💡 Fechas ejemplo: {fechas_sample}")
+                    
+                    return tasas_dict
+                else:
+                    print(f"⚠️ Respuesta sin campo 'datos': {list(data.keys())}")
+            else:
+                print(f"⚠️ Error HTTP {response.status_code} consultando tasas FTD")
+                
+        except Exception as e:
+            print(f"❌ Error consultando tasas FTD: {e}")
+        
+        # Retornar diccionario vacío si falla
+        self.tasas_ftd_cache = {}
+        return {}
+    
+    def _normalizar_fecha_str(self, fecha):
+        """
+        Normalizar fecha a formato string YYYY-MM-DD
+        """
+        if isinstance(fecha, pd.Timestamp):
+            return fecha.strftime('%Y-%m-%d')
+        elif isinstance(fecha, datetime.datetime):
+            return fecha.strftime('%Y-%m-%d')
+        elif isinstance(fecha, datetime.date):
+            return fecha.strftime('%Y-%m-%d')
+        elif isinstance(fecha, str):
+            # Intentar normalizar formato de fecha
+            try:
+                # Si viene en formato DD/MM/YYYY
+                if '/' in fecha:
+                    partes = fecha.split('/')
+                    if len(partes) == 3:
+                        if len(partes[2]) == 4:  # DD/MM/YYYY
+                            return f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
+                        else:  # MM/DD/YYYY o similar
+                            return fecha
+                else:
+                    return fecha
+            except:
+                return str(fecha)
+        else:
+            return str(fecha) if fecha else ""
+    
+    def obtener_tasa_ftd_para_fecha(self, fecha):
+        """
+        Obtener la tasa Farmatodo para una fecha específica.
+        
+        Args:
+            fecha: Fecha en formato string 'YYYY-MM-DD', datetime.date, o pd.Timestamp
+        
+        Returns:
+            float: Tasa Farmatodo o 0 si no se encuentra
+        """
+        tasas = self.obtener_tasas_ftd()
+        
+        if not tasas:
+            return 0
+        
+        fecha_str = self._normalizar_fecha_str(fecha)
+        
+        # Buscar tasa para la fecha
+        if fecha_str in tasas:
+            return tasas[fecha_str].get('tasa_farmatodo', 0)
+        
+        # Si no encuentra la fecha exacta, retornar 0
+        return 0
+    
+    def obtener_tasa_bcv_para_fecha(self, fecha):
+        """
+        Obtener la tasa BCV para una fecha específica desde BigQuery.
+        Usa la tabla cxp_vzla.bcv_tasas.
+        
+        Args:
+            fecha: Fecha en formato string 'YYYY-MM-DD', datetime.date, o pd.Timestamp
+        
+        Returns:
+            float: Tasa BCV o 0 si no se encuentra
+        """
+        # Usar el módulo de tasas de BigQuery si está disponible
+        if obtener_tasa_bcv is not None:
+            return obtener_tasa_bcv(fecha)
+        
+        # Fallback: retornar 0 si el módulo no está disponible
+        return 0
     
     def obtener_fecha_viernes_anterior(self):
         """Obtener la fecha del viernes de la semana pasada"""
@@ -260,7 +402,7 @@ class APIHelper:
 class ExcelProcessor:
     """Procesador base para archivos Excel"""
         
-    def __init__(self, pais, moneda, tasa_dolar, archivo_reporte_absoluto=None, lookup_solicitantes_areas=None):
+    def __init__(self, pais, moneda, tasa_dolar, archivo_reporte_absoluto=None, lookup_solicitantes_areas=None, api_helper=None):
         self.pais = pais
         self.moneda = moneda
         self.tasa_dolar = tasa_dolar
@@ -271,7 +413,13 @@ class ExcelProcessor:
         # CORRECCIÓN: Nombre consistente del atributo
         self.lookup_solicitantes_areas = lookup_solicitantes_areas if lookup_solicitantes_areas is not None else {}
         
-        # CORRECCIÓN: Usar el nombre correcto del atributo
+        # APIHelper para consultar tasas FTD
+        self.api_helper = api_helper if api_helper is not None else APIHelper()
+        
+        # Precargar tasas FTD
+        print(f"💱 Precargando tasas FTD...")
+        self.api_helper.obtener_tasas_ftd()
+        
         print(f"🔧 ExcelProcessor inicializado con {len(self.lookup_solicitantes_areas)} solicitantes mapeados")
         
         # Cargar Reporte Absoluto si existe
@@ -674,6 +822,54 @@ class ExcelProcessor:
         letra_p_indep = header_map['Prioridad']
         return f'=IF(OR({letra_p_indep}{fila}=78,{letra_p_indep}{fila}=79,{letra_p_indep}{fila}=80),"VES",IF(OR({letra_p_indep}{fila}=71,{letra_p_indep}{fila}=72,{letra_p_indep}{fila}=77),"EUR","USD"))'
 
+    def crear_formula_moneda_pago(self, fila, header_map):
+        """
+        Crear fórmula para MONEDA DE PAGO basada en la prioridad:
+        - Si prioridad es 69,70,73,74,75,76 → USD
+        - Si prioridad es 71,72,77 → EUR
+        - Si prioridad es 78,79 → VES
+        - De lo contrario → NA
+        """
+        letra_p = header_map['Prioridad']
+        return f'=IF(OR({letra_p}{fila}=69,{letra_p}{fila}=70,{letra_p}{fila}=73,{letra_p}{fila}=74,{letra_p}{fila}=75,{letra_p}{fila}=76),"USD",IF(OR({letra_p}{fila}=71,{letra_p}{fila}=72,{letra_p}{fila}=77),"EUR",IF(OR({letra_p}{fila}=78,{letra_p}{fila}=79),"VES","NA")))'
+    
+    def crear_formula_conversion_ves(self, fila, header_map):
+        """
+        Crear fórmula para CONVERSION VES:
+        =SI.ERROR(SI(MONEDA_PAGO="VES";MONTO_CAPEX*TC_BCV;0);0)
+        """
+        letra_moneda_pago = header_map['MONEDA DE PAGO']
+        letra_monto_capex = header_map['MONTO A PAGAR CAPEX']
+        letra_tc_bcv = header_map['TC BCV']
+        return f'=IFERROR(IF({letra_moneda_pago}{fila}="VES",{letra_monto_capex}{fila}*{letra_tc_bcv}{fila},0),0)'
+    
+    def crear_formula_conversion_tc_ftd(self, fila, header_map):
+        """
+        Crear fórmula para CONVERSION TC FTD:
+        =SI.ERROR(CONVERSION_VES/TC_FTD;0)
+        """
+        letra_conversion_ves = header_map['CONVERSION VES']
+        letra_tc_ftd = header_map['TC FTD']
+        return f'=IFERROR({letra_conversion_ves}{fila}/{letra_tc_ftd}{fila},0)'
+    
+    def crear_formula_real_convertido(self, fila, header_map):
+        """
+        Crear fórmula para REAL CONVERTIDO:
+        =SI(MONEDA_PAGO="VES";CONVERSION_TC_FTD;MONTO_CAPEX)
+        """
+        letra_moneda_pago = header_map['MONEDA DE PAGO']
+        letra_conversion_tc_ftd = header_map['CONVERSION TC FTD']
+        letra_monto_capex = header_map['MONTO A PAGAR CAPEX']
+        return f'=IF({letra_moneda_pago}{fila}="VES",{letra_conversion_tc_ftd}{fila},{letra_monto_capex}{fila})'
+    
+    def crear_formula_real_mes_convertido(self, fila, header_map):
+        """
+        Crear fórmula para REAL MES CONVERTIDO:
+        Es una copia de REAL CONVERTIDO
+        """
+        letra_real_convertido = header_map['REAL CONVERTIDO']
+        return f'={letra_real_convertido}{fila}'
+
     def crear_formula_tipo_capex(self, fila, header_map):
         letra_ext = header_map['Monto CAPEX EXT']
         letra_ord = header_map['Monto CAPEX ORD']
@@ -776,6 +972,84 @@ class ExcelProcessor:
                 return "USD"
         
         df['METODO DE PAGO'] = df.apply(metodo_pago_fila, axis=1)
+        return df
+
+    def calcular_moneda_pago(self, df):
+        """
+        MONEDA DE PAGO basada en la prioridad:
+        - Si prioridad es 69,70,73,74,75,76 → USD
+        - Si prioridad es 71,72,77 → EUR
+        - Si prioridad es 78,79 → VES
+        - De lo contrario → NA
+        """
+        def moneda_pago_fila(row):
+            p = row['Prioridad']
+            if p in [69, 70, 73, 74, 75, 76]:
+                return "USD"
+            elif p in [71, 72, 77]:
+                return "EUR"
+            elif p in [78, 79]:
+                return "VES"
+            else:
+                return "NA"
+        
+        df['MONEDA DE PAGO'] = df.apply(moneda_pago_fila, axis=1)
+        return df
+    
+    def calcular_conversion_ves(self, df):
+        """
+        CONVERSION VES: Si MONEDA DE PAGO es "VES", entonces MONTO A PAGAR CAPEX * TC BCV, sino 0
+        """
+        def conversion_ves_fila(row):
+            try:
+                if row['MONEDA DE PAGO'] == "VES":
+                    monto = row.get('MONTO A PAGAR CAPEX', 0) or 0
+                    tc_bcv = row.get('TC BCV', 0) or 0
+                    return monto * tc_bcv
+                return 0
+            except:
+                return 0
+        
+        df['CONVERSION VES'] = df.apply(conversion_ves_fila, axis=1)
+        return df
+    
+    def calcular_conversion_tc_ftd(self, df):
+        """
+        CONVERSION TC FTD: CONVERSION VES / TC FTD (con manejo de división por cero)
+        """
+        def conversion_tc_ftd_fila(row):
+            try:
+                conversion_ves = row.get('CONVERSION VES', 0) or 0
+                tc_ftd = row.get('TC FTD', 0) or 0
+                if tc_ftd != 0:
+                    return conversion_ves / tc_ftd
+                return 0
+            except:
+                return 0
+        
+        df['CONVERSION TC FTD'] = df.apply(conversion_tc_ftd_fila, axis=1)
+        return df
+    
+    def calcular_real_convertido(self, df):
+        """
+        REAL CONVERTIDO: Si MONEDA DE PAGO es "VES", usa CONVERSION TC FTD, sino usa MONTO A PAGAR CAPEX
+        """
+        def real_convertido_fila(row):
+            try:
+                if row.get('MONEDA DE PAGO', '') == "VES":
+                    return row.get('CONVERSION TC FTD', 0) or 0
+                return row.get('MONTO A PAGAR CAPEX', 0) or 0
+            except:
+                return 0
+        
+        df['REAL CONVERTIDO'] = df.apply(real_convertido_fila, axis=1)
+        return df
+    
+    def calcular_real_mes_convertido(self, df):
+        """
+        REAL MES CONVERTIDO: Copia de REAL CONVERTIDO
+        """
+        df['REAL MES CONVERTIDO'] = df['REAL CONVERTIDO']
         return df
 
     def calcular_tipo_capex(self, df):
@@ -1013,18 +1287,19 @@ class ExcelProcessor:
             ws = wb.active
             ws.title = "BOSQUETO"
             
-            # Headers completos - EXACTAMENTE 41 columnas (se agrega AREA)
+            # Headers completos - EXACTAMENTE 49 columnas (se agrega REAL CONVERTIDO, REAL MES CONVERTIDO)
             headers_venezuela = [
-                # Columnas originales (1-23) - SIN Proveedor Remito
+                # Columnas originales (1-22) - SIN Proveedor Remito
                 "Numero de Factura", "Numero de OC", "Tipo Factura", "Nombre Lote",
                 "Proveedor", "RIF", "Fecha Documento", "Tienda", "Sucursal",
                 "Monto", "Moneda", "Fecha Vencimiento", "Cuenta", "Id Cta",
                 "Método de Pago", "Pago Independiente", "Prioridad",
                 "Monto CAPEX EXT", "Monto CAPEX ORD", "Monto CADM",
                 "Fecha Creación", "Solicitante", 
-                # Columnas calculadas (24-41) - 18 columnas
-                "Monto USD", "CATEGORIA", "MONTO A PAGAR CAPEX", "MONTO A PAGAR OPEX", 
-                "VALIDACION", "METODO DE PAGO", "SEMANA", "MES DE PAGO",
+                # Columnas calculadas (23-49) - 27 columnas
+                "Monto USD", "CATEGORIA", "MONTO A PAGAR CAPEX", "MONEDA DE PAGO", "FECHA PAGO", "TC FTD",
+                "TC BCV", "CONVERSION VES", "CONVERSION TC FTD", "REAL CONVERTIDO", "REAL MES CONVERTIDO",
+                "MONTO A PAGAR OPEX", "VALIDACION", "METODO DE PAGO", "SEMANA", "MES DE PAGO",
                 "TIPO DE CAPEX", "MONTO ORD", "MONTO EXT", "DIA DE PAGO",
                 "TIENDA_LOOKUP", "CECO", "PROYECTO", "AREA", "FECHA RECIBO", "DESCRIPCIÓN",
                 "AÑO FISCAL"
@@ -1039,12 +1314,29 @@ class ExcelProcessor:
                 return letras
 
             header_map = {header: col_letra(idx + 1) for idx, header in enumerate(headers_venezuela)}
-            print(f"🔎 Mapeo headers a letras:\n{header_map}")
+            
+            # DEBUG: Verificar que Prioridad esté en el header_map
+            if 'Prioridad' in header_map:
+                print(f"✅ Prioridad está en header_map: columna {header_map['Prioridad']}")
+            else:
+                print(f"❌ ERROR: Prioridad NO está en header_map")
+                print(f"   Headers disponibles: {list(header_map.keys())}")
+            
+            # DEBUG: Mostrar fórmula de ejemplo para MONEDA DE PAGO
+            formula_ejemplo = self.crear_formula_moneda_pago(2, header_map)
+            print(f"📝 Fórmula MONEDA DE PAGO ejemplo: {formula_ejemplo[:80]}...")
             
             # Verificar conteo correcto
             total_headers = len(headers_venezuela)
             print(f"📋 Headers consolidado: {total_headers} columnas")
-            print(f"📊 Columna AREA agregada en posición 39 (desde Google Sheets)")
+            print(f"📊 Columna MONEDA DE PAGO en posición 26 (Z)")
+            print(f"📊 Columna FECHA PAGO en posición 27 (AA)")
+            print(f"📊 Columna TC FTD en posición 28 (AB)")
+            print(f"📊 Columna TC BCV en posición 29 (AC)")
+            print(f"📊 Columna CONVERSION VES en posición 30 (AD)")
+            print(f"📊 Columna CONVERSION TC FTD en posición 31 (AE)")
+            print(f"📊 Columna REAL CONVERTIDO en posición 32 (AF)")
+            print(f"📊 Columna REAL MES CONVERTIDO en posición 33 (AG)")
             
 
             # Obtener valores actuales
@@ -1075,27 +1367,240 @@ class ExcelProcessor:
                 'facturas_no_encontradas': 0
             }
             
+            # OPTIMIZACIÓN: Buscar columna "Fecha de Pago" UNA VEZ antes del loop
+            col_fecha_pago = None
+            for col_name in df.columns:
+                if 'fecha' in str(col_name).lower() and 'pago' in str(col_name).lower():
+                    col_fecha_pago = col_name
+                    print(f"📅 Columna Fecha de Pago encontrada: '{col_fecha_pago}'")
+                    break
+            
+            if col_fecha_pago is None:
+                print(f"⚠️ Columna 'Fecha de Pago' no encontrada en el DataFrame")
+            
+            # ================================================================
+            # OPTIMIZACIÓN DE RENDIMIENTO: Pre-calcular tasas para fechas únicas
+            # ================================================================
+            print(f"\n⚡ OPTIMIZACIÓN: Pre-calculando tasas para fechas únicas...")
+            
+            # Extraer todas las fechas de pago únicas
+            fechas_unicas = set()
+            if col_fecha_pago is not None:
+                for valor_fecha in df[col_fecha_pago].dropna():
+                    if pd.notna(valor_fecha):
+                        if isinstance(valor_fecha, (pd.Timestamp, datetime.datetime, datetime.date)):
+                            fecha_str = valor_fecha.strftime('%Y-%m-%d') if hasattr(valor_fecha, 'strftime') else str(valor_fecha)
+                        else:
+                            fecha_str = str(valor_fecha)
+                        fechas_unicas.add(fecha_str)
+            
+            print(f"   📅 Fechas únicas encontradas: {len(fechas_unicas)}")
+            
+            # Pre-cargar cache de tasas FTD (una sola vez)
+            tasas_cache_ftd = self.api_helper.obtener_tasas_ftd()
+            print(f"   💱 Cache de tasas FTD cargado: {len(tasas_cache_ftd)} fechas disponibles")
+            
+            # Pre-cargar cache de tasas BCV desde BigQuery (una sola vez)
+            tasas_cache_bcv = {}
+            if precargar_tasas_bcv is not None:
+                print(f"   💱 Cargando tasas BCV desde BigQuery...")
+                tasas_cache_bcv = precargar_tasas_bcv()
+                print(f"   💱 Cache de tasas BCV cargado: {len(tasas_cache_bcv)} fechas disponibles")
+            else:
+                print(f"   ⚠️ Módulo de tasas BCV no disponible, TC_BCV será 0")
+            
+            # Pre-calcular tasas para cada fecha única
+            # TC_FTD: desde endpoint FTD (tasa_farmatodo)
+            # TC_BCV: desde BigQuery (cxp_vzla.bcv_tasas)
+            tasas_por_fecha = {}
+            
+            for fecha_str in fechas_unicas:
+                # Normalizar fecha
+                fecha_normalizada = self.api_helper._normalizar_fecha_str(fecha_str)
+                
+                # TC_FTD: desde endpoint FTD
+                tc_ftd = 0
+                if fecha_normalizada in tasas_cache_ftd:
+                    tc_ftd = tasas_cache_ftd[fecha_normalizada].get('tasa_farmatodo', 0)
+                
+                # TC_BCV: desde BigQuery (cache pre-cargado)
+                tc_bcv = tasas_cache_bcv.get(fecha_normalizada, 0)
+                
+                tasas_por_fecha[fecha_str] = {
+                    'tc_ftd': tc_ftd,
+                    'tc_bcv': tc_bcv
+                }
+            
+            print(f"   ✅ Tasas pre-calculadas para {len(tasas_por_fecha)} fechas")
+            
+            # Mostrar algunas muestras
+            if tasas_por_fecha:
+                muestras = list(tasas_por_fecha.items())[:2]
+                for fecha, tasas in muestras:
+                    print(f"      📌 {fecha}: TC_FTD={tasas['tc_ftd']}, TC_BCV={tasas['tc_bcv']}")
+            
+            # ================================================================
+            # FIN OPTIMIZACIÓN
+            # ================================================================
+            
             # Escribir datos fila por fila
+            print(f"\n📝 Procesando {len(df)} filas...")
             for row_idx in range(len(df)):
                 try:
                     fila_excel = row_idx + 2
                     
-                    # Copiar datos originales (23 columnas)
+                    # Copiar datos originales (22 columnas)
                     for col_idx in range(min(len(df.columns), 22)):
                         valor = df.iloc[row_idx, col_idx]
                         # Manejar valores problemáticos
                         if pd.isna(valor):
                             valor = ""
+                        
+                        # CORRECCIÓN: Convertir Prioridad a número entero para que las fórmulas funcionen
+                        # La columna Prioridad está en posición 16 (índice 16, columna Q)
+                        if col_idx == 17:  # Columna Prioridad
+                            try:
+                                if valor != "" and pd.notna(valor):
+                                    valor = int(float(str(valor)))
+                            except (ValueError, TypeError):
+                                pass  # Mantener valor original si no se puede convertir
+                        
                         ws.cell(row=fila_excel, column=col_idx + 1, value=valor)
                     
                     # Obtener datos integrados
                     numero_factura = df.iloc[row_idx, 0]
                     datos_integrados = self.obtener_datos_integrados_para_factura(numero_factura)
                     
-                    # NUEVA LÓGICA: Obtener área desde Google Sheets usando Solicitante (columna 23)
-                    solicitante = df.iloc[row_idx, 21] if len(df.columns) > 21 else ""  # Columna W (23)
+                    # NUEVA LÓGICA: Obtener área desde Google Sheets usando Solicitante (columna 22)
+                    solicitante = df.iloc[row_idx, 21] if len(df.columns) > 21 else ""  # Columna W (22)
                     proyecto = datos_integrados['proyecto']
                     area_calculada = self.obtener_area_para_solicitante(solicitante, proyecto)
+                    
+                    # OPTIMIZADO: Obtener Fecha de Pago usando la columna pre-identificada
+                    fecha_pago = ""
+                    if col_fecha_pago is not None:
+                        valor_fecha = df.iloc[row_idx][col_fecha_pago]
+                        if pd.notna(valor_fecha):
+                            if isinstance(valor_fecha, pd.Timestamp):
+                                fecha_pago = valor_fecha.strftime('%Y-%m-%d')
+                            elif isinstance(valor_fecha, datetime.datetime):
+                                fecha_pago = valor_fecha.strftime('%Y-%m-%d')
+                            elif isinstance(valor_fecha, datetime.date):
+                                fecha_pago = valor_fecha.strftime('%Y-%m-%d')
+                            else:
+                                fecha_pago = str(valor_fecha)
+                    
+                    # OPTIMIZADO: Obtener TC FTD y TC BCV desde el cache pre-calculado
+                    # En lugar de llamar a funciones para cada fila, usamos el diccionario pre-calculado
+                    if fecha_pago and fecha_pago in tasas_por_fecha:
+                        tc_ftd = tasas_por_fecha[fecha_pago]['tc_ftd']
+                        tc_bcv = tasas_por_fecha[fecha_pago]['tc_bcv']
+                    else:
+                        tc_ftd = 0
+                        tc_bcv = 0
+                    
+                    # ================================================================
+                    # CALCULAR MONEDA DE PAGO DIRECTAMENTE (sin fórmulas de Excel)
+                    # ================================================================
+                    # Diccionario de prioridades -> moneda de pago
+                    PRIORIDADES_USD = [60, 69, 70, 73, 74, 75, 76]
+                    PRIORIDADES_EUR = [71, 72, 77]
+                    PRIORIDADES_VES = [78, 79, 80, 91]
+                    
+                    # Obtener el valor de Prioridad de la fila actual (columna 17, índice 16)
+                    prioridad_valor = df.iloc[row_idx, 16] if len(df.columns) > 16 else None
+                    
+                    # Convertir a entero para comparación
+                    try:
+                        prioridad_int = int(float(str(prioridad_valor))) if pd.notna(prioridad_valor) and str(prioridad_valor).strip() != '' else None
+                    except (ValueError, TypeError):
+                        prioridad_int = None
+                    
+                    # Determinar MONEDA DE PAGO basado en la prioridad
+                    if prioridad_int in PRIORIDADES_USD:
+                        moneda_pago = "USD"
+                    elif prioridad_int in PRIORIDADES_EUR:
+                        moneda_pago = "EUR"
+                    elif prioridad_int in PRIORIDADES_VES:
+                        moneda_pago = "VES"
+                    else:
+                        moneda_pago = "NA"
+                    
+                    # DEBUG: Mostrar cálculo de MONEDA DE PAGO para las primeras 3 filas
+                    if row_idx < 3:
+                        print(f"   🔍 Fila {row_idx+1}: Prioridad={prioridad_valor} → int={prioridad_int} → MONEDA_PAGO={moneda_pago}")
+                    
+                    # ================================================================
+                    # CALCULAR CONVERSIONES DIRECTAMENTE (sin fórmulas de Excel)
+                    # Necesitamos el valor de MONTO A PAGAR CAPEX primero
+                    # ================================================================
+                    
+                    # Obtener valores necesarios para cálculos
+                    monto_capex_ext = df.iloc[row_idx, 17] if len(df.columns) > 17 else 0  # Columna R (18)
+                    monto_capex_ord = df.iloc[row_idx, 18] if len(df.columns) > 18 else 0  # Columna S (19)
+                    monto_cadm = df.iloc[row_idx, 19] if len(df.columns) > 19 else 0       # Columna T (20)
+                    monto_original = df.iloc[row_idx, 9] if len(df.columns) > 9 else 0    # Columna J (10) - Monto
+                    moneda_original = df.iloc[row_idx, 10] if len(df.columns) > 10 else "" # Columna K (11) - Moneda
+                    
+                    # Convertir a números seguros
+                    try:
+                        monto_capex_ext = float(monto_capex_ext) if pd.notna(monto_capex_ext) else 0
+                    except:
+                        monto_capex_ext = 0
+                    try:
+                        monto_capex_ord = float(monto_capex_ord) if pd.notna(monto_capex_ord) else 0
+                    except:
+                        monto_capex_ord = 0
+                    try:
+                        monto_cadm = float(monto_cadm) if pd.notna(monto_cadm) else 0
+                    except:
+                        monto_cadm = 0
+                    try:
+                        monto_original = float(monto_original) if pd.notna(monto_original) else 0
+                    except:
+                        monto_original = 0
+                    
+                    # Calcular MONTO USD (igual que la fórmula)
+                    if str(moneda_original).strip().upper() == self.moneda:
+                        monto_usd = monto_original / self.tasa_dolar if self.tasa_dolar != 0 else 0
+                    else:
+                        monto_usd = monto_original
+                    
+                    # Calcular MONTO A PAGAR CAPEX
+                    if monto_capex_ext == 0 and monto_capex_ord == 0:
+                        monto_a_pagar_capex = 0
+                    else:
+                        suma_capex = monto_capex_ext + monto_capex_ord
+                        total = suma_capex + monto_cadm
+                        if total != 0:
+                            monto_a_pagar_capex = (suma_capex / total) * monto_usd
+                        else:
+                            monto_a_pagar_capex = 0
+                    
+                    # Calcular CONVERSION VES: Si MONEDA_PAGO="VES", entonces MONTO_CAPEX * TC_BCV
+                    if moneda_pago == "VES" and tc_bcv != 0:
+                        conversion_ves = monto_a_pagar_capex * tc_bcv
+                    else:
+                        conversion_ves = 0
+                    
+                    # Calcular CONVERSION TC FTD: CONVERSION_VES / TC_FTD
+                    if tc_ftd != 0 and conversion_ves != 0:
+                        conversion_tc_ftd = conversion_ves / tc_ftd
+                    else:
+                        conversion_tc_ftd = 0
+                    
+                    # Calcular REAL CONVERTIDO: Si MONEDA_PAGO="VES" usar CONVERSION_TC_FTD, sino usar MONTO_CAPEX
+                    if moneda_pago == "VES":
+                        real_convertido = conversion_tc_ftd
+                    else:
+                        real_convertido = monto_a_pagar_capex
+                    
+                    # REAL MES CONVERTIDO es igual a REAL CONVERTIDO
+                    real_mes_convertido = real_convertido
+                    
+                    # DEBUG: Mostrar cálculo de conversiones para las primeras 3 filas
+                    if row_idx < 3:
+                        print(f"   💱 Fila {row_idx+1}: TC_FTD={tc_ftd}, TC_BCV={tc_bcv}, CONV_VES={conversion_ves:.2f}, CONV_TC_FTD={conversion_tc_ftd:.2f}, REAL={real_convertido:.2f}")
 
                     # Actualizar estadísticas
                     valores_no_encontrados = ["SIN_REPORTE_ABSOLUTO", "FACTURA_NO_ENCONTRADA"]
@@ -1117,6 +1622,14 @@ class ExcelProcessor:
                         self.crear_formula_monto_usd(fila_excel, header_map),
                         self.crear_formula_categoria(fila_excel, header_map),
                         self.crear_formula_monto_capex(fila_excel, header_map),
+                        moneda_pago,           # MONEDA DE PAGO (valor calculado directamente)
+                        fecha_pago,            # FECHA PAGO (del archivo de entrada)
+                        tc_ftd,                # TC FTD (Tasa Farmatodo según fecha de pago)
+                        tc_bcv,                # TC BCV (Tasa BCV según fecha de pago)
+                        conversion_ves,        # CONVERSION VES (valor calculado directamente)
+                        conversion_tc_ftd,     # CONVERSION TC FTD (valor calculado directamente)
+                        real_convertido,       # REAL CONVERTIDO (valor calculado directamente)
+                        real_mes_convertido,   # REAL MES CONVERTIDO (valor calculado directamente)
                         self.crear_formula_monto_opex(fila_excel, header_map),
                         self.crear_formula_validacion(fila_excel, header_map),
                         self.crear_formula_metodo_pago(fila_excel, header_map),
@@ -1136,9 +1649,9 @@ class ExcelProcessor:
                     ]
 
                     
-                    # CORRECCIÓN: Verificar 19 valores, no 18
-                    if len(valores_calculados) != 19:
-                        print(f"⚠️ Error: Se esperaban 19 valores calculados, pero hay {len(valores_calculados)}")
+                    # Verificar 27 valores (se agregó REAL CONVERTIDO, REAL MES CONVERTIDO)
+                    if len(valores_calculados) != 27:
+                        print(f"⚠️ Error: Se esperaban 27 valores calculados, pero hay {len(valores_calculados)}")
                         return False
                     
                     # Escribir columnas calculadas
@@ -1192,15 +1705,24 @@ class ExcelProcessor:
             
             print(f"\n📍 MAPEO FINAL DE COLUMNAS:")
             print(f"   W  (22) - Solicitante (para AREA)")
-            print(f"   J  (9)  - Monto")
-            print(f"   K  (10) - Moneda")
-            print(f"   AJ (35) - TIENDA_LOOKUP")
-            print(f"   AK (36) - CECO")
-            print(f"   AL (37) - PROYECTO")
-            print(f"   AM (38) - AREA (desde Google Sheets)")
-            print(f"   AN (39) - FECHA RECIBO")
-            print(f"   AO (40) - DESCRIPCIÓN")
-            print(f"   AP (41) - AÑO FISCAL ✨ (Agosto-Julio)")
+            print(f"   J  (10) - Monto")
+            print(f"   K  (11) - Moneda")
+            print(f"   Y  (25) - MONTO A PAGAR CAPEX")
+            print(f"   Z  (26) - MONEDA DE PAGO")
+            print(f"   AA (27) - FECHA PAGO (del archivo de entrada)")
+            print(f"   AB (28) - TC FTD (Tasa Farmatodo)")
+            print(f"   AC (29) - TC BCV (Tasa BCV)")
+            print(f"   AD (30) - CONVERSION VES")
+            print(f"   AE (31) - CONVERSION TC FTD")
+            print(f"   AF (32) - REAL CONVERTIDO ✨")
+            print(f"   AG (33) - REAL MES CONVERTIDO ✨")
+            print(f"   AR (43) - TIENDA_LOOKUP")
+            print(f"   AS (44) - CECO")
+            print(f"   AT (45) - PROYECTO")
+            print(f"   AU (46) - AREA (desde Google Sheets)")
+            print(f"   AV (47) - FECHA RECIBO")
+            print(f"   AW (48) - DESCRIPCIÓN")
+            print(f"   AX (49) - AÑO FISCAL (Agosto-Julio)")
 
             
             return True

@@ -579,7 +579,8 @@ def procesar_venezuela(archivo_reporte_pago, archivo_reporte_absoluto=None):
         print(f"\n📝 CREANDO CONSOLIDADO CON TIENDA...")
         print("-" * 50)
         
-        excel_processor = ExcelProcessor('VENEZUELA', 'VES', tasa_dolar, archivo_reporte_absoluto, lookup_solicitantes_areas)
+        # Pasar api_helper para consultar tasas FTD
+        excel_processor = ExcelProcessor('VENEZUELA', 'VES', tasa_dolar, archivo_reporte_absoluto, lookup_solicitantes_areas, api_helper)
         nombre_salida = "ConsolidadoCapexVENEZUELA.xlsx"
         
         if excel_processor.crear_archivo_consolidado(df_procesado, nombre_salida):
@@ -595,30 +596,39 @@ def procesar_venezuela(archivo_reporte_pago, archivo_reporte_absoluto=None):
             print(f"   🗓️ Lógica: Viernes de semana pasada")
 
             print(f"📊 ESTRUCTURA FINAL:")
-            print(f"   📄 Originales: 23 columnas")
-            print(f"   💱 Calculadas: 19 columnas")  # ACTUALIZADO: 18 → 19
-            print(f"   📋 TOTAL: 42 columnas")       # ACTUALIZADO: 41 → 42
+            print(f"   📄 Originales: 22 columnas")
+            print(f"   💱 Calculadas: 27 columnas")  # ACTUALIZADO: 25 → 27 (REAL CONVERTIDO, REAL MES CONVERTIDO)
+            print(f"   📋 TOTAL: 49 columnas")
 
             print(f"\n📊 NUEVAS COLUMNAS:")
-            print(f"   36. AJ - TIENDA_LOOKUP ({tienda_info})")
-            print(f"   37. AK - CECO")
-            print(f"   38. AL - PROYECTO") 
-            print(f"   39. AM - AREA ({area_info})")
-            print(f"   40. AN - FECHA RECIBO")
-            print(f"   41. AO - DESCRIPCIÓN")
-            print(f"   42. AP - AÑO FISCAL ✨ (Agosto-Julio)")  # NUEVO
+            print(f"   25. Y  - MONTO A PAGAR CAPEX")
+            print(f"   26. Z  - MONEDA DE PAGO")
+            print(f"   27. AA - FECHA PAGO (del archivo de entrada)")
+            print(f"   28. AB - TC FTD (Tasa Farmatodo)")
+            print(f"   29. AC - TC BCV (Tasa BCV)")
+            print(f"   30. AD - CONVERSION VES")
+            print(f"   31. AE - CONVERSION TC FTD")
+            print(f"   32. AF - REAL CONVERTIDO ✨")
+            print(f"   33. AG - REAL MES CONVERTIDO ✨")
+            print(f"   43. AR - TIENDA_LOOKUP ({tienda_info})")
+            print(f"   44. AS - CECO")
+            print(f"   45. AT - PROYECTO") 
+            print(f"   46. AU - AREA ({area_info})")
+            print(f"   47. AV - FECHA RECIBO")
+            print(f"   48. AW - DESCRIPCIÓN")
+            print(f"   49. AX - AÑO FISCAL (Agosto-Julio)")
             
             resultado = {
                 'archivo_salida': nombre_salida,
                 'filas_procesadas': len(df_procesado),
                 'tasa_utilizada': tasa_dolar,
-                'fecha_tasa': fecha_tasa,  # NUEVO
-                'logica_tasa': 'Viernes anterior',  # NUEVO
+                'fecha_tasa': fecha_tasa,
+                'logica_tasa': 'Viernes anterior',
                 'pais': 'VENEZUELA',
                 'moneda': 'VES',
-                'columnas_consolidado': 42,
-                'columnas_calculadas': 19,
-                'estructura': 'Consolidado CAPEX + Reporte Absoluto + Google Sheets + Tasa Viernes Anterior'
+                'columnas_consolidado': 49,  # ACTUALIZADO: 47 → 49 (REAL CONVERTIDO, REAL MES CONVERTIDO)
+                'columnas_calculadas': 27,  # ACTUALIZADO: 25 → 27
+                'estructura': 'Consolidado CAPEX + Reporte Absoluto + Google Sheets + Tasa Viernes Anterior + TC FTD + TC BCV + Conversiones + Real'
             }
             return resultado, excel_processor
         else:
@@ -2084,17 +2094,73 @@ def obtener_info_venezuela():
         'pais': 'Venezuela',
         'moneda_principal': 'VES',
         'api_fuente': 'DolarApi.com (BCV)',
-        'logica_tasa': 'Viernes de semana anterior',  # NUEVO
+        'logica_tasa': 'Viernes de semana anterior',
         'archivo_salida': 'ConsolidadoCapexVENEZUELA.xlsx',
         'hoja_destino': 'BOSQUETO',
-        'columnas_input_principal': 24,
+        'columnas_input_principal': 22,
         'columnas_input_adicional': 35,
-        'columnas_output': 42,  # ACTUALIZADO
-        'estructura': 'Consolidado CAPEX + Análisis + Integración Reporte Absoluto + Tasa Histórica',
+        'columnas_output': 49,
+        'columnas_calculadas': 27,
+        'estructura': 'Consolidado CAPEX + Análisis + Integración Reporte Absoluto + Tasa Histórica + TC FTD + TC BCV + Conversiones + Real',
         'conversion_moneda': {
             'logica': 'Tasa del viernes de la semana pasada',
             'respaldo': 'Jueves o Miércoles si no hay datos del viernes',
             'ultimo_recurso': 'Tasa actual'
+        },
+        'columna_moneda_pago': {
+            'posicion': 26,
+            'letra_excel': 'Z',
+            'descripcion': 'Moneda de Pago basada en Prioridad',
+            'valores': {
+                'USD': 'Prioridades 69, 70, 73, 74, 75, 76',
+                'EUR': 'Prioridades 71, 72, 77',
+                'VES': 'Prioridades 78, 79',
+                'NA': 'Otras prioridades'
+            }
+        },
+        'columna_fecha_pago': {
+            'posicion': 27,
+            'letra_excel': 'AA',
+            'descripcion': 'Fecha de Pago del archivo de entrada',
+            'fuente': 'Columna "Fecha de Pago" del archivo Prioridad de Pago'
+        },
+        'columna_tc_ftd': {
+            'posicion': 28,
+            'letra_excel': 'AB',
+            'descripcion': 'Tasa de Cambio Farmatodo',
+            'fuente': 'Endpoint TC_FTD_ENDPOINT según fecha de pago',
+            'campo_json': 'tasa_farmatodo'
+        },
+        'columna_tc_bcv': {
+            'posicion': 29,
+            'letra_excel': 'AC',
+            'descripcion': 'Tasa de Cambio BCV',
+            'fuente': 'Endpoint TC_FTD_ENDPOINT según fecha de pago',
+            'campo_json': 'tasa_bcv'
+        },
+        'columna_conversion_ves': {
+            'posicion': 30,
+            'letra_excel': 'AD',
+            'descripcion': 'Conversión VES',
+            'formula': '=SI.ERROR(SI(MONEDA_PAGO="VES";MONTO_CAPEX*TC_BCV;0);0)'
+        },
+        'columna_conversion_tc_ftd': {
+            'posicion': 31,
+            'letra_excel': 'AE',
+            'descripcion': 'Conversión TC FTD',
+            'formula': '=SI.ERROR(CONVERSION_VES/TC_FTD;0)'
+        },
+        'columna_real_convertido': {
+            'posicion': 32,
+            'letra_excel': 'AF',
+            'descripcion': 'Real Convertido',
+            'formula': '=SI(MONEDA_PAGO="VES";CONVERSION_TC_FTD;MONTO_CAPEX)'
+        },
+        'columna_real_mes_convertido': {
+            'posicion': 33,
+            'letra_excel': 'AG',
+            'descripcion': 'Real Mes Convertido',
+            'formula': '=REAL_CONVERTIDO (copia)'
         }
     }
 
