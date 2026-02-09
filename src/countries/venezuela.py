@@ -813,34 +813,33 @@ def crear_hoja_capex_pagado_por_recibo(archivo_excel: str, df_detalle: pd.DataFr
         'DECEMBER': 'DICIEMBRE'
     }
 
-    # Obtener mes basado en el viernes de la semana pasada (igual que la columna SEMANA)
-    # Usa la misma lógica que APIHelper._obtener_viernes_pasado()
+    # Obtener mes basado en los días de pago (miércoles y viernes) de la semana pasada
+    # Usa la misma lógica que APIHelper._obtener_dias_pago_semana_pasada()
     import datetime as dt
     
-    # Obtener el viernes de la semana pasada (misma lógica que en utils.py)
+    # Obtener miércoles y viernes de la semana pasada
     hoy = dt.date.today()
-    dia_semana_actual = hoy.weekday()  # lunes=0, viernes=4, domingo=6
+    dia_semana_actual = hoy.weekday()
+    lunes_esta_semana = hoy - dt.timedelta(days=dia_semana_actual)
+    lunes_semana_pasada = lunes_esta_semana - dt.timedelta(days=7)
+    miercoles_pasado = lunes_semana_pasada + dt.timedelta(days=2)
+    viernes_pasado = lunes_semana_pasada + dt.timedelta(days=4)
     
-    # Calcular días hasta el viernes de esta semana
-    dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
-    
-    # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
-    # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
-    if dias_hasta_viernes_esta_semana == 0:
-        dias_retroceso = 7
+    # Determinar mes de referencia:
+    # Si ambos en mismo mes → ese mes. Si no → mes del miércoles.
+    if miercoles_pasado.month == viernes_pasado.month:
+        mes_ref_num = miercoles_pasado.month
     else:
-        dias_retroceso = dias_hasta_viernes_esta_semana + 7
+        mes_ref_num = miercoles_pasado.month
     
-    viernes_pasado = hoy - dt.timedelta(days=dias_retroceso)
-    
-    # Obtener el mes del viernes pasado
     meses = {
         1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
         5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
         9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
     }
-    mes_actual = meses[viernes_pasado.month]
-    print(f"\n📅 Mes actual para filtros (basado en viernes pasado): {mes_actual}")
+    mes_actual = meses[mes_ref_num]
+    print(f"\n📅 Días de pago semana pasada: Mié={miercoles_pasado}, Vie={viernes_pasado}")
+    print(f"📅 Mes actual para filtros: {mes_actual}")
     
     # Verificar filtro de mes
     print(f"\n🔍 Valores de 'MES DE PAGO' en el DataFrame:")
@@ -1436,29 +1435,25 @@ def crear_tabla2_presupuesto_mensual(archivo_excel: str, df_diferencia: pd.DataF
     
     # ===================================================================
     # CALCULAR NOMBRES DE COLUMNAS DINÁMICOS
-    # Basado en el viernes de la semana pasada (igual que la columna SEMANA)
-    # Usa la misma lógica que APIHelper._obtener_viernes_pasado()
+    # Basado en los días de pago (miércoles y viernes) de la semana pasada
+    # Usa la misma lógica que APIHelper._obtener_dias_pago_semana_pasada()
     # ===================================================================
     import datetime as dt
     
-    # Obtener el viernes de la semana pasada (misma lógica que en utils.py)
+    # Obtener miércoles y viernes de la semana pasada
     hoy = dt.date.today()
-    dia_semana_actual = hoy.weekday()  # lunes=0, viernes=4, domingo=6
+    dia_semana_actual = hoy.weekday()
+    lunes_esta_semana = hoy - dt.timedelta(days=dia_semana_actual)
+    lunes_semana_pasada = lunes_esta_semana - dt.timedelta(days=7)
+    miercoles_pasado = lunes_semana_pasada + dt.timedelta(days=2)
+    viernes_pasado = lunes_semana_pasada + dt.timedelta(days=4)
     
-    # Calcular días hasta el viernes de esta semana
-    dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
-    
-    # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
-    # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
-    if dias_hasta_viernes_esta_semana == 0:
-        dias_retroceso = 7
+    # Determinar mes de referencia:
+    # Si ambos en mismo mes → ese mes. Si no → mes del miércoles.
+    if miercoles_pasado.month == viernes_pasado.month:
+        mes_actual = miercoles_pasado
     else:
-        dias_retroceso = dias_hasta_viernes_esta_semana + 7
-    
-    viernes_pasado = hoy - dt.timedelta(days=dias_retroceso)
-    
-    # Mes actual es el mes del viernes pasado
-    mes_actual = viernes_pasado
+        mes_actual = miercoles_pasado
     # Mes anterior es el mes anterior al del viernes pasado
     mes_anterior = viernes_pasado - relativedelta(months=1)
     

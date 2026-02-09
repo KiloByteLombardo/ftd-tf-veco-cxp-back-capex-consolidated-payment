@@ -1122,89 +1122,164 @@ class ExcelProcessor:
 
 
     
+    def _obtener_dias_pago_semana_pasada(self):
+        """
+        Obtiene el miércoles y viernes de la semana pasada.
+        Los días de pago son miércoles y viernes.
+        
+        Returns:
+            tuple: (miercoles_pasado, viernes_pasado) como datetime.date
+        """
+        hoy = datetime.date.today()
+        dia_semana_actual = hoy.weekday()  # lunes=0, martes=1, miercoles=2, jueves=3, viernes=4, sabado=5, domingo=6
+        
+        # Calcular el lunes de esta semana
+        lunes_esta_semana = hoy - datetime.timedelta(days=dia_semana_actual)
+        
+        # Lunes de la semana pasada
+        lunes_semana_pasada = lunes_esta_semana - datetime.timedelta(days=7)
+        
+        # Miércoles de la semana pasada (lunes + 2)
+        miercoles_pasado = lunes_semana_pasada + datetime.timedelta(days=2)
+        
+        # Viernes de la semana pasada (lunes + 4)
+        viernes_pasado = lunes_semana_pasada + datetime.timedelta(days=4)
+        
+        return miercoles_pasado, viernes_pasado
+    
     def _obtener_viernes_pasado(self):
         """
         Calcula la fecha del viernes de la semana pasada.
-        Ejemplo: Si hoy es lunes 1 de diciembre, retorna el viernes 28 de noviembre.
+        Mantiene compatibilidad con código existente.
         """
-        hoy = datetime.date.today()
-        dia_semana_actual = hoy.weekday()  # lunes=0, viernes=4, domingo=6
+        _, viernes_pasado = self._obtener_dias_pago_semana_pasada()
+        return viernes_pasado
+    
+    def _obtener_mes_referencia(self):
+        """
+        Determina el mes de referencia basado en los días de pago (miércoles y viernes)
+        de la semana pasada.
         
-        # Calcular días hasta el viernes de esta semana
-        dias_hasta_viernes_esta_semana = (4 - dia_semana_actual) % 7
+        Regla:
+        - Si AMBOS (miércoles AND viernes) están en el mismo mes → ese es el mes de referencia
+        - Si están en meses distintos → el mes del miércoles es el mes de referencia
         
-        # Si hoy es viernes (dias_hasta_viernes_esta_semana = 0), el viernes pasado fue hace 7 días
-        # Si no, el viernes pasado fue hace (dias_hasta_viernes_esta_semana + 7) días
-        if dias_hasta_viernes_esta_semana == 0:
-            dias_retroceso = 7
+        Returns:
+            tuple: (mes_numero, año, miercoles, viernes)
+        """
+        miercoles, viernes = self._obtener_dias_pago_semana_pasada()
+        
+        if miercoles.month == viernes.month:
+            # Ambos en el mismo mes → ese mes
+            mes_ref = miercoles.month
+            anio_ref = miercoles.year
         else:
-            dias_retroceso = dias_hasta_viernes_esta_semana + 7
+            # Meses distintos → usar el mes del miércoles
+            mes_ref = miercoles.month
+            anio_ref = miercoles.year
         
-        return hoy - datetime.timedelta(days=dias_retroceso)
+        print(f"📅 Días de pago semana pasada: Miércoles={miercoles}, Viernes={viernes}")
+        print(f"📅 Mes de referencia: {mes_ref}/{anio_ref} (ambos mismo mes: {miercoles.month == viernes.month})")
+        
+        return mes_ref, anio_ref, miercoles, viernes
+    
+    def _calcular_semana_en_mes(self, mes_ref, anio_ref, miercoles_objetivo, viernes_objetivo):
+        """
+        Calcula el número de semana dentro de un mes, enumerando solo las semanas
+        donde AMBOS miércoles y viernes caen dentro de ese mes.
+        
+        Args:
+            mes_ref: Número del mes (1-12)
+            anio_ref: Año
+            miercoles_objetivo: datetime.date del miércoles a buscar
+            viernes_objetivo: datetime.date del viernes a buscar
+        
+        Returns:
+            int: Número de semana (1, 2, 3, 4, o 5)
+        """
+        import calendar
+        
+        # Obtener el primer día del mes
+        primer_dia = datetime.date(anio_ref, mes_ref, 1)
+        
+        # Obtener el último día del mes
+        _, ultimo_dia_num = calendar.monthrange(anio_ref, mes_ref)
+        
+        # Encontrar el lunes de la primera semana que toca este mes
+        # Si el día 1 es lunes (weekday=0), ese es nuestro inicio
+        # Si no, retrocedemos al lunes anterior
+        dia_semana_primer_dia = primer_dia.weekday()
+        lunes_inicio = primer_dia - datetime.timedelta(days=dia_semana_primer_dia)
+        
+        # Recorrer semana por semana y enumerar las que tienen AMBOS días en el mes
+        semana_numero = 0
+        lunes_actual = lunes_inicio
+        
+        # Recorremos hasta 6 semanas (máximo posible que toque un mes)
+        for _ in range(6):
+            mier = lunes_actual + datetime.timedelta(days=2)  # Miércoles
+            vier = lunes_actual + datetime.timedelta(days=4)  # Viernes
+            
+            # Verificar si AMBOS están dentro del mes de referencia
+            if mier.month == mes_ref and mier.year == anio_ref and \
+               vier.month == mes_ref and vier.year == anio_ref:
+                semana_numero += 1
+                
+                # Verificar si es la semana que buscamos
+                if mier == miercoles_objetivo and vier == viernes_objetivo:
+                    return semana_numero
+            
+            # Avanzar al siguiente lunes
+            lunes_actual += datetime.timedelta(days=7)
+            
+            # Si ya pasamos del mes, detenernos
+            if lunes_actual.month > mes_ref and lunes_actual.year >= anio_ref:
+                break
+            # Caso especial: cambio de año (diciembre → enero)
+            if lunes_actual.year > anio_ref and mes_ref != 12:
+                break
+        
+        # Si no se encontró la semana exacta, retornar la última semana contada
+        print(f"⚠️ No se encontró match exacto para Mié={miercoles_objetivo} Vie={viernes_objetivo} en {mes_ref}/{anio_ref}")
+        return max(semana_numero, 1)
     
     def obtener_semana_actual(self):
         """
-        Obtiene el número de semana del mes basado en el viernes de la semana pasada.
-        Ejemplo: Si hoy es lunes 1 de diciembre, toma el viernes pasado (28 de noviembre),
-        entonces semana = 4 (cuarta semana de noviembre).
+        Obtiene el número de semana del mes basado en los días de pago
+        (miércoles y viernes) de la semana pasada.
         
-        Regla especial: Si el viernes pasado está en el mes anterior y hoy es del mes siguiente
-        (no inclusivo del lunes), entonces el viernes pasado es semana 4.
+        Lógica:
+        1. Tomar miércoles y viernes de la semana pasada
+        2. Si ambos están en el mismo mes → ese es el mes de referencia
+        3. Si están en meses distintos → el mes del miércoles es el de referencia
+        4. Enumerar las semanas del mes donde AMBOS miércoles y viernes caen dentro
+        5. Retornar el número de semana correspondiente (puede ser 1-5)
         """
-        viernes_pasado = self._obtener_viernes_pasado()
-        hoy = datetime.date.today()
+        mes_ref, anio_ref, miercoles, viernes = self._obtener_mes_referencia()
         
-        # Calcular semana del mes basada en el viernes pasado
-        primer_dia_mes = viernes_pasado.replace(day=1)
-        dias_transcurridos = (viernes_pasado - primer_dia_mes).days
+        semana = self._calcular_semana_en_mes(mes_ref, anio_ref, miercoles, viernes)
         
-        # Calcular qué día de la semana es el día 1 del mes (lunes=0, domingo=6)
-        dia_semana_primer_dia = primer_dia_mes.weekday()
-        
-        # Calcular en qué semana del mes está el viernes pasado
-        # La semana 1 empieza el lunes de la semana que contiene el día 1
-        # Si el día 1 es lunes, semana 1 = días 1-7
-        # Si el día 1 es martes, semana 1 incluye el lunes anterior (último día del mes anterior)
-        # Necesitamos calcular cuántas semanas completas han pasado desde el lunes de la semana del día 1
-        
-        # Encontrar el lunes de la semana que contiene el día 1
-        dias_retroceso_lunes = dia_semana_primer_dia  # días desde el lunes hasta el día 1
-        lunes_semana_1 = primer_dia_mes - datetime.timedelta(days=dias_retroceso_lunes)
-        
-        # Calcular días desde el lunes de la semana 1 hasta el viernes pasado
-        dias_desde_lunes_semana_1 = (viernes_pasado - lunes_semana_1).days
-        
-        # Calcular semana (cada 7 días es una semana, empezando desde 1)
-        semana = (dias_desde_lunes_semana_1 // 7) + 1
-        
-        # Regla especial: Si el viernes pasado está en el mes anterior y hoy es del mes siguiente
-        # (especialmente si hoy es lunes), entonces el viernes pasado es semana 4
-        if viernes_pasado.month < hoy.month:
-            # Si el viernes pasado está en los días 22-31 del mes anterior, es semana 4
-            if viernes_pasado.day >= 22:
-                semana = 4
-        
-        # Asegurar que si el viernes pasado está en días 22-28, es semana 4
-        # (independientemente del mes, si está en esos días, es la cuarta semana)
-        if viernes_pasado.day >= 22 and viernes_pasado.day <= 28:
-            semana = 4
+        print(f"📅 Resultado: Semana {semana} de {mes_ref}/{anio_ref}")
         
         return semana
     
     def obtener_mes_actual(self):
         """
-        Obtiene el mes basado en el viernes de la semana pasada.
-        Ejemplo: Si hoy es lunes 1 de diciembre, toma el viernes pasado (28 de noviembre),
-        entonces mes = "NOVIEMBRE".
+        Obtiene el mes basado en los días de pago (miércoles y viernes)
+        de la semana pasada.
+        
+        Regla:
+        - Si ambos están en el mismo mes → ese mes
+        - Si están en meses distintos → el mes del miércoles
         """
-        viernes_pasado = self._obtener_viernes_pasado()
+        mes_ref, anio_ref, miercoles, viernes = self._obtener_mes_referencia()
         
         meses = {
             1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
             5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
             9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
         }
-        return meses[viernes_pasado.month]
+        return meses[mes_ref]
     
     def obtener_anio_fiscal_actual(self):
         """
